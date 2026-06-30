@@ -1,0 +1,19 @@
+# limpet config — lives at ~/.config/limpet/config
+# You normally never edit this by hand; `limpet setup` writes it for you.
+# Shown here so you can see exactly what limpet stores.
+
+# DRIVE: absolute mount path of your external drive.
+DRIVE=/Volumes/X9
+
+# FOLDERS: home-relative folders that live on the drive.
+# Each becomes a symlink ~/<name> -> $DRIVE/<name>, and fails over to a real
+# local folder when the drive is unplugged.
+FOLDERS=(Documents Downloads Desktop)
+
+# MIRROR_DEST: where the offline-readable mirror of critical paths is kept
+# (see ~/.config/limpet/mirror-paths.txt for which paths get mirrored).
+MIRROR_DEST=$HOME/.limpet/mirror
+
+# AUTO_UPDATE: 1 = auto-apply new releases (checked once/day from your terminal),
+#              0 = just print a one-line notice when an update is available.
+AUTO_UPDATE=0

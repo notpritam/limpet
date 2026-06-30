@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  limpet writes this LaunchAgent automatically during `limpet setup`.
+  It is shown here only for transparency — you do not install it by hand.
+  {{LIMPET_PATH}} is replaced with the absolute path to the installed `limpet`.
+
+  Why WatchPaths /Volumes: macOS fires this agent whenever ANY volume mounts or
+  unmounts, so limpet reacts to plug/unplug within a second. The agent only stats
+  the mountpoint and does local symlink swaps, so it needs no Full Disk Access.
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.limpet.guard</string>
+  <key>ProgramArguments</key>
+    <array><string>{{LIMPET_PATH}}</string><string>__guard</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>WatchPaths</key><array><string>/Volumes</string></array>
+  <key>StandardOutPath</key><string>{{STATE_DIR}}/agent.out</string>
+  <key>StandardErrorPath</key><string>{{STATE_DIR}}/agent.err</string>
+</dict></plist>
