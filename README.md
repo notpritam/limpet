@@ -5,6 +5,8 @@
 
 **Use an external drive as your primary storage on macOS — without it breaking when you unplug.**
 
+**▶ [Launch video](https://notpritam.github.io/limpet/launch.html) · [Explainer deck](https://notpritam.github.io/limpet/explainer.html) · [Project site](https://notpritam.github.io/limpet/)**
+
 A limpet is the little mollusk that clamps tight to its rock, yet detaches and re-attaches cleanly with the tide. That's the idea: your folders cling to the external drive, but they survive every unplug and re-attach themselves when the drive comes back.
 
 ```
