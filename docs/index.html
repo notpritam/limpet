@@ -85,7 +85,7 @@
   .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal)}
 
   /* ---------- hero ---------- */
-  .hero{min-height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:140px 0 90px}
+  .hero{display:flex;flex-direction:column;padding:clamp(150px,19vh,212px) 0 clamp(72px,9vh,104px)}
   .hero h1{font-family:var(--disp);font-weight:600;font-size:clamp(46px,8.2vw,108px);line-height:.98;letter-spacing:-.035em;margin:26px 0 0;max-width:15ch}
   .hero h1 .grad{background:linear-gradient(120deg,#fff 18%,var(--teal) 60%,var(--emer));-webkit-background-clip:text;background-clip:text;color:transparent}
   .hero p.lead{font-size:clamp(17px,2vw,21px);color:var(--mut);max-width:54ch;margin-top:26px;line-height:1.55}
@@ -191,6 +191,7 @@
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important} .rv{opacity:1;transform:none;filter:none}}
 </style>
+<noscript><style>.rv{opacity:1!important;transform:none!important;filter:none!important}</style></noscript>
 </head>
 <body>
 <div class="orbs"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
