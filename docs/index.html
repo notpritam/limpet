@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<!-- ABOUTME: GitHub Pages landing for limpet — links the launch video, explainer deck, and install. -->
+<!-- ABOUTME: Static, dependency-free; served from /docs on the main branch. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>limpet — external drive as primary storage on macOS, without the risk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{--bg:#0a0e16;--bg2:#0e1422;--text:#e9eef7;--muted:#8a97ab;--faint:#5b6678;--line:rgba(255,255,255,.08);--card:rgba(255,255,255,.03);--ssd:#2dd4bf;--local:#60a5fa;--good:#34d399;--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;--sans:'Inter',-apple-system,sans-serif}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{min-height:100vh;background:radial-gradient(1200px 700px at 75% -10%,rgba(45,212,191,.10),transparent 60%),radial-gradient(900px 600px at 0% 110%,rgba(96,165,250,.10),transparent 55%),linear-gradient(180deg,var(--bg),var(--bg2));color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center;padding:6vw}
+  .wrap{max-width:880px;width:100%}
+  .logo{font-size:clamp(48px,9vw,84px);line-height:1}
+  h1{font-size:clamp(38px,7vw,72px);font-weight:900;letter-spacing:-.03em;margin:8px 0 14px}
+  .tag{font-size:clamp(17px,2.2vw,23px);color:#c4cdda;max-width:46ch;line-height:1.5}
+  .tag b{color:#fff}
+  .pills{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 30px}
+  .pill{font-family:var(--mono);font-size:12.5px;color:var(--muted);border:1px solid var(--line);background:var(--card);padding:7px 14px;border-radius:999px;display:inline-flex;gap:8px;align-items:center}
+  .pill .d{width:8px;height:8px;border-radius:50%}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:26px}
+  a.card{display:block;text-decoration:none;color:inherit;border:1px solid var(--line);background:var(--card);border-radius:16px;padding:20px;transition:.2s}
+  a.card:hover{border-color:var(--ssd);background:rgba(45,212,191,.06);transform:translateY(-2px)}
+  a.card .h{font-weight:700;font-size:18px;display:flex;align-items:center;gap:8px}
+  a.card .p{color:var(--muted);font-size:14px;margin-top:6px;line-height:1.5}
+  .term{font-family:var(--mono);font-size:14px;background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:14px;padding:18px 20px;line-height:1.95;color:#dbe6f2;overflow:auto}
+  .term .hash{color:var(--faint)} .term .c{color:var(--ssd)}
+  .foot{margin-top:24px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .foot a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">🐚</div>
+  <h1>limpet</h1>
+  <p class="tag">Use an <b>external drive as your primary storage</b> on macOS — without it breaking when you unplug. Folders cling to the drive, but survive every detach and re-attach themselves.</p>
+  <div class="pills">
+    <span class="pill"><span class="d" style="background:var(--ssd)"></span>drive = primary</span>
+    <span class="pill"><span class="d" style="background:var(--local)"></span>auto local failover</span>
+    <span class="pill"><span class="d" style="background:var(--good)"></span>no kext · no daemon · no network</span>
+  </div>
+
+  <div class="cards">
+    <a class="card" href="launch.html"><div class="h">▶ Launch video</div><div class="p">35-second animated explainer of the problem &amp; the fix.</div></a>
+    <a class="card" href="explainer.html"><div class="h">▥ Explainer deck</div><div class="p">11 slides — the full story, keyboard-navigable.</div></a>
+    <a class="card" href="https://github.com/notpritam/limpet"><div class="h">★ Source &amp; docs</div><div class="p">README, AGENTS.md, tests — one auditable bash file.</div></a>
+  </div>
+
+  <div class="term">
+    <span class="hash"># install + set up</span><br/>
+    curl -fsSL https://raw.githubusercontent.com/notpritam/limpet/main/install.sh | bash<br/>
+    <span class="c">limpet</span> setup
+  </div>
+
+  <div class="foot">open source · <a href="https://github.com/notpritam/limpet/blob/main/LICENSE">MIT</a> · github.com/notpritam/limpet</div>
+</div>
+</body>
+</html>
