@@ -1,0 +1,433 @@
+#!/usr/bin/env bash
+# ABOUTME: limpet — use an external drive as primary storage on macOS, with automatic local failover.
+# ABOUTME: Single-file, pure-bash CLI. No kernel extensions, no daemons, no network. See `limpet help`.
+set -uo pipefail
+
+LIMPET_VERSION="0.1.0"
+
+# ----------------------------------------------------------------------------- paths
+CONFIG_DIR="${LIMPET_CONFIG_DIR:-$HOME/.config/limpet}"
+CONFIG="$CONFIG_DIR/config"
+MIRROR_LIST="$CONFIG_DIR/mirror-paths.txt"
+STATE_DIR="${LIMPET_STATE_DIR:-$HOME/.local/state/limpet}"
+LOG="$STATE_DIR/limpet.log"
+LABEL="com.limpet.guard"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+SELF="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)/$(basename "$0")"
+
+DRY_RUN="${LIMPET_DRY_RUN:-0}"
+ASSUME_YES=0
+
+# ----------------------------------------------------------------------------- ui
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  B=$'\033[1m'; DIM=$'\033[2m'; R=$'\033[0m'
+  RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; BLU=$'\033[34m'; CYN=$'\033[36m'
+else B=""; DIM=""; R=""; RED=""; GRN=""; YEL=""; BLU=""; CYN=""; fi
+
+say()  { printf '%s\n' "$*"; }
+info() { printf '%s•%s %s\n' "$CYN" "$R" "$*"; }
+ok()   { printf '%s✓%s %s\n' "$GRN" "$R" "$*"; }
+warn() { printf '%s!%s %s\n' "$YEL" "$R" "$*" >&2; }
+err()  { printf '%s✗%s %s\n' "$RED" "$R" "$*" >&2; }
+die()  { err "$*"; exit 1; }
+hr()   { printf '%s────────────────────────────────────────────%s\n' "$DIM" "$R"; }
+title(){ printf '\n%s%s%s\n' "$B" "$*" "$R"; }
+
+confirm() { # confirm "question"   (auto-yes with --yes)
+  [ "$ASSUME_YES" = 1 ] && return 0
+  printf '%s?%s %s %s[y/N]%s ' "$YEL" "$R" "$*" "$DIM" "$R"
+  local a; read -r a || true
+  case "$a" in y|Y|yes|YES) return 0;; *) return 1;; esac
+}
+
+ts()  { date '+%Y-%m-%d %H:%M:%S'; }
+logln(){ mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s %s\n' "$(ts)" "$*" >> "$LOG"; }
+
+# ----------------------------------------------------------------------------- config
+DRIVE=""
+FOLDERS=()
+MIRROR_DEST="$HOME/.limpet/mirror"
+
+load_config() { [ -f "$CONFIG" ] && . "$CONFIG"; }
+require_config() {
+  load_config
+  [ -n "$DRIVE" ] || die "limpet is not set up yet. Run: ${B}limpet setup${R}"
+}
+save_config() {
+  mkdir -p "$CONFIG_DIR"
+  {
+    echo "# limpet config — edit with care, or re-run \`limpet setup\`"
+    printf 'DRIVE=%q\n' "$DRIVE"
+    printf 'FOLDERS=('; for f in "${FOLDERS[@]}"; do printf '%q ' "$f"; done; printf ')\n'
+    printf 'MIRROR_DEST=%q\n' "$MIRROR_DEST"
+  } > "$CONFIG"
+  [ -f "$MIRROR_LIST" ] || cat > "$MIRROR_LIST" <<EOF
+# limpet — paths under the drive to keep mirrored to a local fallback copy,
+# so important files stay readable when the drive is unplugged.
+# One path per line, RELATIVE to the drive root. '#' = comment.
+EOF
+}
+
+drive_present() { [ -n "$DRIVE" ] && [ -d "$DRIVE" ]; }
+
+# ----------------------------------------------------------------------------- lock
+with_lock() { # with_lock <name> <command...>
+  local name="$1"; shift
+  local lock="$STATE_DIR/$name.lock.d"
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  [ -d "$lock" ] && find "$lock" -maxdepth 0 -mmin +2 2>/dev/null | grep -q . && rmdir "$lock" 2>/dev/null
+  if ! mkdir "$lock" 2>/dev/null; then logln "[$name] skip: another instance running"; return 0; fi
+  trap 'rmdir "'"$lock"'" 2>/dev/null' RETURN
+  "$@"
+}
+
+# ----------------------------------------------------------------------------- verified move + link
+_manifest() { # sha of every file/symlink path+size (ignores volatile macOS sidecars)
+  ( cd "$1" 2>/dev/null && find . \( -type f -o -type l \) ! -name .DS_Store ! -name '._*' -print0 \
+      | LC_ALL=C sort -z | xargs -0 stat -f '%N|%z' 2>/dev/null ) | shasum | awk '{print $1}'
+}
+verify_copy() { # verify_copy <src> <dst>  -> 0 if identical
+  local s="$1" d="$2"
+  if [ -d "$s" ]; then [ -n "$(_manifest "$s")" ] && [ "$(_manifest "$s")" = "$(_manifest "$d")" ]
+  else [ "$(shasum "$s" | awk '{print $1}')" = "$(shasum "$d" | awk '{print $1}')" ]; fi
+}
+
+# move_to_drive <abs-src> <abs-dst> : ditto-copy, verify, then delete src + symlink it to dst
+move_to_drive() {
+  local src="$1" dst="$2"
+  [ -L "$src" ] && { info "already a symlink: ${DIM}$src${R}"; return 0; }
+  [ -e "$src" ] || { ln -s "$dst" "$src"; return 0; }
+  if [ -e "$dst" ] && [ ! -L "$dst" ]; then
+    warn "destination already exists, verifying instead of copying: $dst"
+  else
+    if [ "$DRY_RUN" = 1 ]; then say "${DIM}[dry-run] ditto '$src' '$dst'${R}"; return 0; fi
+    ditto "$src" "$dst" || { err "copy failed: $src"; return 1; }
+  fi
+  [ "$DRY_RUN" = 1 ] && { say "${DIM}[dry-run] verify + replace '$src' with symlink${R}"; return 0; }
+  verify_copy "$src" "$dst" || { err "verify FAILED — leaving original intact: $src"; return 1; }
+  chmod -N "$src" 2>/dev/null
+  rm -rf "$src" && ln -s "$dst" "$src" || { err "swap failed (data is safe at $dst)"; return 1; }
+  return 0
+}
+
+# ----------------------------------------------------------------------------- the guard (failover/failback)
+_guard_one() {
+  local name="$1" local_path="$HOME/$1" x9="$DRIVE/$1"
+  if drive_present; then
+    mkdir -p "$x9" 2>/dev/null
+    if [ -L "$local_path" ]; then
+      [ "$(readlink "$local_path")" != "$x9" ] && { ln -sfn "$x9" "$local_path"; logln "[guard] fixed $name link"; }
+      return 0
+    fi
+    if [ -e "$local_path" ]; then                     # real local folder from a failover -> merge back
+      logln "[guard] failback $name: merging local files back to drive"
+      local f base new; shopt -s dotglob nullglob
+      for f in "$local_path"/*; do
+        base="$(basename "$f")"; [ "$base" = ".DS_Store" ] && { rm -f "$f"; continue; }
+        if [ -e "$x9/$base" ]; then new="${base}.local-$(date +%Y%m%d-%H%M%S)"; mv "$f" "$x9/$new" && logln "[guard]   kept-both: $base -> $new"
+        else mv "$f" "$x9/" 2>/dev/null || logln "[guard]   could not move $base (drive not writable here)"; fi
+      done
+      shopt -u dotglob nullglob
+      chmod -N "$local_path" 2>/dev/null
+      if rmdir "$local_path" 2>/dev/null; then ln -sfn "$x9" "$local_path"; logln "[guard] failback $name complete"
+      else logln "[guard] failback $name: local dir not empty (drive not writable here) — left for terminal run"; fi
+      return 0
+    fi
+    ln -sfn "$x9" "$local_path"; logln "[guard] created $name link"
+  else                                                # drive gone -> become a real local folder
+    if [ -L "$local_path" ]; then rm -f "$local_path" && mkdir -p "$local_path" && logln "[guard] failover $name -> local folder"
+    elif [ ! -e "$local_path" ]; then mkdir -p "$local_path"; fi
+  fi
+}
+run_guard() {
+  load_config; [ -n "$DRIVE" ] || exit 0
+  logln "[guard] run: drive $(drive_present && echo PRESENT || echo ABSENT)"
+  local f; for f in "${FOLDERS[@]}"; do _guard_one "$f"; done
+}
+
+# ----------------------------------------------------------------------------- the mirror
+run_mirror() {
+  load_config; [ -n "$DRIVE" ] || exit 0
+  drive_present || { logln "[mirror] drive absent — keeping existing mirror"; return 0; }
+  [ -f "$MIRROR_LIST" ] || return 0
+  mkdir -p "$MIRROR_DEST"
+  local line src dst n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"; case "$line" in ''|\#*) continue;; esac
+    src="$DRIVE/$line"; dst="$MIRROR_DEST/$line"
+    [ -e "$src" ] || { logln "[mirror] skip missing: $line"; continue; }
+    mkdir -p "$(dirname "$dst")"
+    if [ -d "$src" ]; then mkdir -p "$dst"; rsync -a --delete "$src/" "$dst/" 2>>"$LOG" && n=$((n+1))
+    else rsync -a "$src" "$dst" 2>>"$LOG" && n=$((n+1)); fi
+  done < "$MIRROR_LIST"
+  logln "[mirror] done ($n mirrored)"
+}
+
+# ----------------------------------------------------------------------------- agent + shell hook
+HOOK_BEGIN="# >>> limpet self-heal >>>"
+HOOK_END="# <<< limpet self-heal <<<"
+
+install_agent() {
+  mkdir -p "$(dirname "$PLIST")"
+  cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array><string>$SELF</string><string>__guard</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>WatchPaths</key><array><string>/Volumes</string></array>
+  <key>StandardOutPath</key><string>$STATE_DIR/agent.out</string>
+  <key>StandardErrorPath</key><string>$STATE_DIR/agent.err</string>
+</dict></plist>
+EOF
+  launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load -w "$PLIST" 2>/dev/null || true
+}
+uninstall_agent() {
+  launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl unload "$PLIST" 2>/dev/null || true
+  rm -f "$PLIST"
+}
+
+shell_rc() { # echo the rc files that exist
+  for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do [ -f "$rc" ] && echo "$rc"; done
+}
+install_hook() {
+  local rc; for rc in $(shell_rc); do
+    grep -q "$HOOK_BEGIN" "$rc" 2>/dev/null && continue
+    cat >> "$rc" <<EOF
+
+$HOOK_BEGIN
+# Runs the guard + mirror from your terminal (which has disk access), throttled.
+if [ -n "\${PS1:-}" ] || [[ \$- == *i* ]]; then ( \
+  _ls="$STATE_DIR"; mkdir -p "\$_ls" 2>/dev/null; _now=\$(date +%s); \
+  if [ \$(( _now - \$(cat "\$_ls/guard.stamp" 2>/dev/null || echo 0) )) -ge 60 ]; then echo "\$_now" > "\$_ls/guard.stamp"; "$SELF" __guard >/dev/null 2>&1; fi; \
+  if [ \$(( _now - \$(cat "\$_ls/mirror.stamp" 2>/dev/null || echo 0) )) -ge 3600 ]; then echo "\$_now" > "\$_ls/mirror.stamp"; "$SELF" __mirror >/dev/null 2>&1; fi \
+  ) &
+fi
+$HOOK_END
+EOF
+    ok "added self-heal hook to ${DIM}$rc${R}"
+  done
+}
+uninstall_hook() {
+  local rc; for rc in $(shell_rc); do
+    [ -f "$rc" ] || continue
+    grep -q "$HOOK_BEGIN" "$rc" || continue
+    # delete the marked block (portable, no in-place sed -i differences)
+    awk -v b="$HOOK_BEGIN" -v e="$HOOK_END" '
+      $0==b{skip=1} skip{ if($0==e) skip=0; next } {print}' "$rc" > "$rc.limpet.tmp" && mv "$rc.limpet.tmp" "$rc"
+    ok "removed self-heal hook from ${DIM}$rc${R}"
+  done
+}
+
+# ----------------------------------------------------------------------------- drive detection
+list_external_drives() { # prints mounted volumes that look like real external disks
+  local v
+  for v in /Volumes/*; do
+    [ -d "$v" ] || continue
+    [ "$v" = "/Volumes/Macintosh HD" ] && continue
+    [ -L "$v" ] && continue
+    echo "$v"
+  done
+}
+
+# ----------------------------------------------------------------------------- commands
+cmd_setup() {
+  local pre_drive="" pre_folders="" pre_mirror=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --drive) pre_drive="$2"; shift 2;;
+    --folders) pre_folders="$2"; shift 2;;
+    --mirror) pre_mirror="$2"; shift 2;;
+    --yes|-y) ASSUME_YES=1; shift;;
+    --dry-run) DRY_RUN=1; shift;;
+    *) die "unknown setup option: $1";;
+  esac; done
+
+  title "limpet setup"
+  say "Make an external drive your primary storage, with automatic local failover."
+  hr
+
+  # 1) drive
+  if [ -n "$pre_drive" ]; then DRIVE="$pre_drive"
+  else
+    local drives=(); while IFS= read -r d; do drives+=("$d"); done < <(list_external_drives)
+    [ "${#drives[@]}" -gt 0 ] || die "No external drive found under /Volumes. Plug one in and retry."
+    say "${B}Which drive should be primary?${R}"
+    local i=1; for d in "${drives[@]}"; do printf '  %s%d%s) %s\n' "$CYN" "$i" "$R" "$d"; i=$((i+1)); done
+    printf '%s?%s pick a number: ' "$YEL" "$R"; local pick; read -r pick || true
+    case "$pick" in ''|*[!0-9]*) die "not a number";; esac
+    [ "$pick" -ge 1 ] && [ "$pick" -le "${#drives[@]}" ] || die "out of range"
+    DRIVE="${drives[$((pick-1))]}"
+  fi
+  [ -d "$DRIVE" ] || die "drive not mounted: $DRIVE"
+  ok "drive: ${B}$DRIVE${R}"
+
+  # 2) folders
+  if [ -n "$pre_folders" ]; then IFS=',' read -ra FOLDERS <<< "$pre_folders"
+  else
+    say ""; say "${B}Which home folders should live on the drive?${R} ${DIM}(comma-separated)${R}"
+    printf '  %sdefault:%s Documents,Downloads,Desktop  — press Enter to accept: ' "$DIM" "$R"
+    local fin; read -r fin || true
+    [ -z "$fin" ] && fin="Documents,Downloads,Desktop"
+    IFS=',' read -ra FOLDERS <<< "$fin"
+  fi
+  ok "folders: ${B}${FOLDERS[*]}${R}"
+
+  [ -n "$pre_mirror" ] && { mkdir -p "$CONFIG_DIR"; printf '%s\n' "${pre_mirror//,/$'\n'}" >> "$MIRROR_LIST"; }
+
+  # 3) confirm
+  say ""; warn "This will MOVE each folder's contents onto $DRIVE (verified copy first), replace them with"
+  warn "symlinks, and install a background guard + a terminal hook. Existing data is never deleted before"
+  warn "its copy is byte-verified."
+  confirm "Proceed?" || { say "aborted."; return 1; }
+
+  # 4) do it
+  hr
+  local f
+  for f in "${FOLDERS[@]}"; do
+    info "linking ${B}$f${R} → $DRIVE/$f"
+    move_to_drive "$HOME/$f" "$DRIVE/$f" && ok "$f is now on the drive" || err "$f failed (left intact)"
+  done
+  save_config
+  [ "$DRY_RUN" = 1 ] || { install_agent; install_hook; }
+  hr
+  ok "${B}Setup complete.${R}"
+  say "  • Background guard: ${GRN}active${R} (reacts to plug/unplug instantly)"
+  say "  • Terminal hook: added (merges offline work back + mirrors). Open a new terminal to activate."
+  say "  • Check anytime with ${B}limpet status${R}, or ${B}limpet doctor${R}."
+}
+
+cmd_status() {
+  load_config
+  local json=0; [ "${1:-}" = "--json" ] && json=1
+  [ -n "$DRIVE" ] || { [ "$json" = 1 ] && echo '{"setup":false}' || die "not set up — run: limpet setup"; return; }
+  local present="false"; drive_present && present="true"
+  local agent="false"; launchctl list 2>/dev/null | grep -q "$LABEL" && agent="true"
+  if [ "$json" = 1 ]; then
+    printf '{"setup":true,"drive":"%s","drive_present":%s,"agent_loaded":%s,"folders":[' "$DRIVE" "$present" "$agent"
+    local first=1 f t st
+    for f in "${FOLDERS[@]}"; do
+      [ -L "$HOME/$f" ] && st="symlink" || { [ -d "$HOME/$f" ] && st="local" || st="missing"; }
+      t="$(readlink "$HOME/$f" 2>/dev/null)"
+      [ "$first" = 1 ] || printf ','; first=0
+      printf '{"name":"%s","state":"%s","target":"%s"}' "$f" "$st" "$t"
+    done
+    printf ']}\n'; return
+  fi
+  title "limpet status"
+  say "drive:   ${B}$DRIVE${R}  $( [ "$present" = true ] && printf '%sconnected%s' "$GRN" "$R" || printf '%sUNPLUGGED%s' "$YEL" "$R" )"
+  say "guard:   $( [ "$agent" = true ] && printf '%sloaded%s' "$GRN" "$R" || printf '%snot loaded%s' "$RED" "$R" )"
+  hr
+  local f t
+  for f in "${FOLDERS[@]}"; do
+    if [ -L "$HOME/$f" ]; then t="$(readlink "$HOME/$f")"; [ -e "$HOME/$f" ] && printf '  %s✓%s ~/%-10s → %s\n' "$GRN" "$R" "$f" "$t" || printf '  %s✗%s ~/%-10s → %s %s(broken — drive unplugged)%s\n' "$YEL" "$R" "$f" "$t" "$DIM" "$R"
+    elif [ -d "$HOME/$f" ]; then printf '  %s•%s ~/%-10s %s(local folder — failover mode)%s\n' "$BLU" "$R" "$f" "$DIM" "$R"
+    else printf '  %s?%s ~/%-10s %s(missing)%s\n' "$YEL" "$R" "$f" "$DIM" "$R"; fi
+  done
+}
+
+cmd_doctor() {
+  require_config
+  title "limpet doctor"
+  local issues=0
+  drive_present && ok "drive mounted: $DRIVE" || { warn "drive not mounted ($DRIVE) — folders are in failover mode"; }
+  launchctl list 2>/dev/null | grep -q "$LABEL" && ok "guard agent loaded" || { warn "guard agent NOT loaded"; issues=$((issues+1)); confirm "reinstall the agent?" && { install_agent; ok "reinstalled"; }; }
+  [ -x "$SELF" ] && ok "cli present: $SELF" || warn "cli path looks off: $SELF"
+  # drive-name drift gotcha (e.g. "/Volumes/X9 1")
+  if ! drive_present && [ -n "$(ls -d "${DRIVE} "* 2>/dev/null)" ]; then
+    warn "Your drive may have remounted under a different name (e.g. '${DRIVE} 1')."
+    warn "Eject it cleanly and replug so it returns to '$DRIVE'."
+    issues=$((issues+1))
+  fi
+  hr
+  [ "$issues" = 0 ] && ok "all good." || warn "$issues issue(s) above."
+}
+
+cmd_link() { # limpet link <path>   (move any extra file/folder onto the drive + symlink)
+  require_config; drive_present || die "drive not mounted"
+  local p="${1:-}"; [ -n "$p" ] || die "usage: limpet link <path>"
+  [ -e "$p" ] || die "no such path: $p"
+  local abs; abs="$(cd "$(dirname "$p")" && pwd)/$(basename "$p")"
+  case "$abs" in "$DRIVE"/*) die "already on the drive";; esac
+  local dst="$DRIVE/$(basename "$abs")"
+  [ -e "$dst" ] && die "destination exists: $dst"
+  info "moving ${B}$abs${R} → $dst"
+  move_to_drive "$abs" "$dst" && ok "linked." || err "failed."
+}
+cmd_unlink() { # limpet unlink <path>  (bring a symlinked path back to local disk)
+  local p="${1:-}"; [ -n "$p" ] || die "usage: limpet unlink <path>"
+  [ -L "$p" ] || die "not a symlink: $p"
+  require_config; drive_present || die "drive not mounted (needed to copy data back)"
+  local tgt; tgt="$(readlink "$p")"
+  [ "$DRY_RUN" = 1 ] && { say "${DIM}[dry-run] copy $tgt back to $p${R}"; return; }
+  rm -f "$p"; ditto "$tgt" "$p" && ok "restored to local disk: $p" || err "failed"
+}
+
+cmd_sync()   { require_config; with_lock guard run_guard; with_lock mirror run_mirror; ok "synced."; }
+
+cmd_uninstall() {
+  load_config
+  title "limpet uninstall"
+  warn "This removes the guard agent and the terminal hook."
+  uninstall_agent; uninstall_hook
+  if [ -n "$DRIVE" ] && confirm "Also turn the symlinked folders back into normal LOCAL folders (copies data back from the drive)?"; then
+    drive_present || die "drive must be mounted to copy data back"
+    local f; for f in "${FOLDERS[@]}"; do [ -L "$HOME/$f" ] && { rm -f "$HOME/$f"; ditto "$DRIVE/$f" "$HOME/$f" && ok "$f restored locally"; }; done
+  fi
+  ok "limpet uninstalled. (config left at $CONFIG_DIR — delete it to fully reset.)"
+}
+
+cmd_help() {
+  cat <<EOF
+${B}limpet${R} ${DIM}v$LIMPET_VERSION${R} — external drive as primary storage on macOS, with automatic local failover.
+
+${B}USAGE${R}
+  limpet <command> [options]
+
+${B}COMMANDS${R}
+  ${CYN}setup${R}            Interactive wizard: pick a drive + folders, move them over, install the guard.
+                   Flags for automation: --drive <path> --folders a,b,c [--mirror p1,p2] --yes
+  ${CYN}status${R}           Show drive + folder state. Add --json for machine output.
+  ${CYN}doctor${R}           Health-check and offer fixes.
+  ${CYN}sync${R}             Run the failover/failback + mirror right now.
+  ${CYN}link${R} <path>      Move any extra file/folder onto the drive and symlink it back.
+  ${CYN}unlink${R} <path>    Bring a symlinked path back onto the local disk.
+  ${CYN}uninstall${R}        Remove the guard + hook (optionally restore folders to local).
+  ${CYN}help${R} | ${CYN}version${R}   This help / version.
+
+${B}GLOBAL${R}
+  --yes, -y        Don't prompt (for scripts/agents).
+  --dry-run        Print actions without changing anything.
+
+${B}HOW IT WORKS${R}
+  Folders become symlinks to the drive. A background ${B}guard${R} (launchd, watches /Volumes) flips them to
+  real local folders the instant the drive is unplugged, and back when it returns — merging anything you
+  saved offline, never overwriting. A terminal hook finishes the parts macOS won't let a background job do.
+  No kernel extensions, no daemons, no network.
+EOF
+}
+
+# ----------------------------------------------------------------------------- dispatch
+main() {
+  local cmd="${1:-help}"; shift || true
+  # pull global flags out of the args
+  local args=(); while [ $# -gt 0 ]; do case "$1" in
+    --yes|-y) ASSUME_YES=1;; --dry-run) DRY_RUN=1;; *) args+=("$1");; esac; shift; done
+  set -- ${args[@]+"${args[@]}"}
+  case "$cmd" in
+    setup)        cmd_setup "$@";;
+    status)       cmd_status "$@";;
+    doctor)       cmd_doctor;;
+    sync)         cmd_sync;;
+    link)         cmd_link "$@";;
+    unlink)       cmd_unlink "$@";;
+    uninstall)    cmd_uninstall;;
+    __guard)      with_lock guard run_guard;;     # internal: called by launchd + hook
+    __mirror)     with_lock mirror run_mirror;;   # internal: called by hook
+    version|-v|--version) say "limpet $LIMPET_VERSION";;
+    help|-h|--help) cmd_help;;
+    *) err "unknown command: $cmd"; say "run ${B}limpet help${R}"; exit 1;;
+  esac
+}
+main "$@"
