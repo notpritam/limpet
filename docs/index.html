@@ -90,7 +90,8 @@
   .hero h1 .grad{background:linear-gradient(120deg,#fff 18%,var(--teal) 60%,var(--emer));-webkit-background-clip:text;background-clip:text;color:transparent}
   .hero p.lead{font-size:clamp(17px,2vw,21px);color:var(--mut);max-width:54ch;margin-top:26px;line-height:1.55}
   .hero p.lead b{color:var(--ink);font-weight:600}
-  .cta-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:38px}
+  .cta-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:36px;max-width:476px}
+  .cta-row .btn{width:100%;justify-content:space-between}
   .btn{display:inline-flex;align-items:center;gap:10px;padding:11px 11px 11px 22px;border-radius:999px;font-size:15px;font-weight:500;cursor:pointer;border:0;
     transition:transform .5s var(--ease),background .4s var(--ease),border-color .4s var(--ease)}
   .btn .ic{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;transition:transform .5s var(--ease),background .4s var(--ease)}
@@ -190,6 +191,7 @@
     section{padding-block:62px}
     .hero{padding-block:116px 44px}
     .hero h1{font-size:clamp(40px,11vw,58px)}
+    .cta-row{grid-template-columns:1fr;max-width:360px}
     .cmdbox{flex-direction:column;align-items:stretch;gap:12px}
     .cmdbox code{white-space:normal;word-break:break-word}
     .copy{align-self:flex-end}
