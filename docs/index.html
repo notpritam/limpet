@@ -1,61 +1,410 @@
 <!DOCTYPE html>
-<!-- ABOUTME: GitHub Pages landing for limpet — links the launch video, explainer deck, and install. -->
-<!-- ABOUTME: Static, dependency-free; served from /docs on the main branch. -->
+<!-- ABOUTME: Premium marketing landing page for limpet — hosted via GitHub Pages (docs/ root). -->
+<!-- ABOUTME: Self-contained (CDN fonts only); Ethereal-Glass aesthetic, scroll-reveal motion, mobile-first collapse. -->
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>limpet — external drive as primary storage on macOS, without the risk</title>
+<meta name="description" content="Run your Mac off an external SSD as primary storage — and keep working the instant it's unplugged. limpet fails over to local and merges your work back automatically. Open source, macOS, zero dependencies." />
+<meta property="og:title" content="limpet — your external drive, finally unbreakable" />
+<meta property="og:description" content="External drive as primary storage on macOS, with automatic local failover. One auditable bash file. No kext, no daemon, no network." />
+<meta property="og:type" content="website" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap" rel="stylesheet" />
 <style>
-  :root{--bg:#0a0e16;--bg2:#0e1422;--text:#e9eef7;--muted:#8a97ab;--faint:#5b6678;--line:rgba(255,255,255,.08);--card:rgba(255,255,255,.03);--ssd:#2dd4bf;--local:#60a5fa;--good:#34d399;--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;--sans:'Inter',-apple-system,sans-serif}
+  :root{
+    --bg:#050505; --ink:#f6f8fb; --mut:rgba(246,248,251,.56); --faint:rgba(246,248,251,.34);
+    --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.055);
+    --teal:#2dd4bf; --emer:#34d399; --blue:#60a5fa; --warn:#fbbf24;
+    --card:rgba(255,255,255,.025); --shell:rgba(255,255,255,.03);
+    --disp:'Clash Display','Geist',system-ui,sans-serif;
+    --sans:'Geist',-apple-system,system-ui,sans-serif;
+    --mono:'Geist Mono',ui-monospace,Menlo,monospace;
+    --ease:cubic-bezier(.32,.72,0,1); --ease2:cubic-bezier(.16,1,.3,1);
+  }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{min-height:100vh;background:radial-gradient(1200px 700px at 75% -10%,rgba(45,212,191,.10),transparent 60%),radial-gradient(900px 600px at 0% 110%,rgba(96,165,250,.10),transparent 55%),linear-gradient(180deg,var(--bg),var(--bg2));color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center;padding:6vw}
-  .wrap{max-width:880px;width:100%}
-  .logo{font-size:clamp(48px,9vw,84px);line-height:1}
-  h1{font-size:clamp(38px,7vw,72px);font-weight:900;letter-spacing:-.03em;margin:8px 0 14px}
-  .tag{font-size:clamp(17px,2.2vw,23px);color:#c4cdda;max-width:46ch;line-height:1.5}
-  .tag b{color:#fff}
-  .pills{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 30px}
-  .pill{font-family:var(--mono);font-size:12.5px;color:var(--muted);border:1px solid var(--line);background:var(--card);padding:7px 14px;border-radius:999px;display:inline-flex;gap:8px;align-items:center}
-  .pill .d{width:8px;height:8px;border-radius:50%}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:26px}
-  a.card{display:block;text-decoration:none;color:inherit;border:1px solid var(--line);background:var(--card);border-radius:16px;padding:20px;transition:.2s}
-  a.card:hover{border-color:var(--ssd);background:rgba(45,212,191,.06);transform:translateY(-2px)}
-  a.card .h{font-weight:700;font-size:18px;display:flex;align-items:center;gap:8px}
-  a.card .p{color:var(--muted);font-size:14px;margin-top:6px;line-height:1.5}
-  .term{font-family:var(--mono);font-size:14px;background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:14px;padding:18px 20px;line-height:1.95;color:#dbe6f2;overflow:auto}
-  .term .hash{color:var(--faint)} .term .c{color:var(--ssd)}
-  .foot{margin-top:24px;font-family:var(--mono);font-size:12px;color:var(--faint)}
-  .foot a{color:var(--muted)}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden;line-height:1.5}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:rgba(45,212,191,.28)}
+
+  /* fixed atmosphere */
+  .orbs{position:fixed;inset:0;z-index:-2;pointer-events:none;overflow:hidden}
+  .orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
+  .orb.a{width:60vw;height:60vw;top:-22vw;right:-12vw;background:radial-gradient(circle,rgba(45,212,191,.32),transparent 65%)}
+  .orb.b{width:48vw;height:48vw;bottom:-18vw;left:-14vw;background:radial-gradient(circle,rgba(96,165,250,.24),transparent 65%)}
+  .orb.c{width:34vw;height:34vw;top:38%;left:46%;background:radial-gradient(circle,rgba(52,211,153,.14),transparent 65%)}
+  .grain{position:fixed;inset:0;z-index:50;pointer-events:none;opacity:.04;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .grid-tex{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(var(--line2) 1px,transparent 1px),linear-gradient(90deg,var(--line2) 1px,transparent 1px);
+    background-size:64px 64px;mask-image:radial-gradient(circle at 50% 30%,#000,transparent 78%)}
+
+  .wrap{width:100%;max-width:1180px;margin:0 auto;padding:0 28px}
+
+  /* ---------- floating glass nav ---------- */
+  nav{position:fixed;top:0;left:0;right:0;z-index:40;display:flex;justify-content:center;padding-top:22px}
+  .navpill{display:flex;align-items:center;gap:26px;padding:11px 11px 11px 22px;border-radius:999px;
+    background:rgba(10,12,16,.55);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);
+    border:1px solid var(--line);box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 20px 50px -20px rgba(0,0,0,.8)}
+  .brand{display:flex;align-items:center;gap:9px;font-family:var(--disp);font-weight:600;font-size:18px;letter-spacing:-.01em}
+  .brand .sh{font-size:19px}
+  .navlinks{display:flex;align-items:center;gap:24px}
+  .navlinks a{font-size:14px;color:var(--mut);transition:color .4s var(--ease)}
+  .navlinks a:hover{color:var(--ink)}
+  .nav-cta{display:inline-flex;align-items:center;gap:9px;padding:8px 8px 8px 16px;border-radius:999px;font-size:14px;font-weight:500;
+    background:var(--ink);color:#06120f;transition:transform .5s var(--ease),background .4s var(--ease)}
+  .nav-cta .ic{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.12);transition:transform .5s var(--ease)}
+  .nav-cta:hover{transform:translateY(-1px)} .nav-cta:hover .ic{transform:translate(2px,-1px)} .nav-cta:active{transform:scale(.97)}
+  .burger{display:none;width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:transparent;cursor:pointer;position:relative}
+  .burger span{position:absolute;left:11px;right:11px;height:1.6px;background:var(--ink);transition:transform .5s var(--ease),opacity .3s var(--ease)}
+  .burger span:nth-child(1){top:16px} .burger span:nth-child(2){bottom:16px}
+  body.menu-open .burger span:nth-child(1){top:20px;transform:rotate(45deg)}
+  body.menu-open .burger span:nth-child(2){bottom:20px;transform:rotate(-45deg)}
+
+  #overlay{position:fixed;inset:0;z-index:39;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+    background:rgba(5,5,5,.86);backdrop-filter:blur(26px);-webkit-backdrop-filter:blur(26px);
+    opacity:0;visibility:hidden;transition:opacity .6s var(--ease),visibility .6s}
+  body.menu-open #overlay{opacity:1;visibility:visible}
+  #overlay a{font-family:var(--disp);font-size:clamp(34px,9vw,64px);font-weight:500;letter-spacing:-.02em;color:var(--mut);
+    transform:translateY(40px);opacity:0;transition:transform .7s var(--ease),opacity .7s var(--ease),color .3s}
+  #overlay a:hover{color:var(--ink)}
+  body.menu-open #overlay a{transform:none;opacity:1}
+  body.menu-open #overlay a:nth-child(1){transition-delay:.1s} body.menu-open #overlay a:nth-child(2){transition-delay:.16s}
+  body.menu-open #overlay a:nth-child(3){transition-delay:.22s} body.menu-open #overlay a:nth-child(4){transition-delay:.28s}
+
+  /* ---------- reveal ---------- */
+  .rv{opacity:0;transform:translateY(34px);filter:blur(8px);transition:opacity .9s var(--ease2),transform .9s var(--ease2),filter .9s var(--ease2)}
+  .rv.in{opacity:1;transform:none;filter:none}
+
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.22em;
+    color:var(--mut);padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card)}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal)}
+
+  /* ---------- hero ---------- */
+  .hero{min-height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:140px 0 90px}
+  .hero h1{font-family:var(--disp);font-weight:600;font-size:clamp(46px,8.2vw,108px);line-height:.98;letter-spacing:-.035em;margin:26px 0 0;max-width:15ch}
+  .hero h1 .grad{background:linear-gradient(120deg,#fff 18%,var(--teal) 60%,var(--emer));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.lead{font-size:clamp(17px,2vw,21px);color:var(--mut);max-width:54ch;margin-top:26px;line-height:1.55}
+  .hero p.lead b{color:var(--ink);font-weight:500}
+  .cta-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:38px}
+  .btn{display:inline-flex;align-items:center;gap:12px;padding:14px 14px 14px 26px;border-radius:999px;font-size:15px;font-weight:500;cursor:pointer;border:0;
+    transition:transform .5s var(--ease),background .4s var(--ease),border-color .4s var(--ease)}
+  .btn .ic{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;transition:transform .5s var(--ease),background .4s var(--ease)}
+  .btn-primary{background:var(--ink);color:#06120f}
+  .btn-primary .ic{background:rgba(0,0,0,.12)}
+  .btn-primary:hover{transform:translateY(-2px)} .btn-primary:hover .ic{transform:translate(3px,-1px) scale(1.06)} .btn-primary:active{transform:scale(.98)}
+  .btn-ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);padding-left:22px}
+  .btn-ghost .ic{background:rgba(255,255,255,.06)}
+  .btn-ghost:hover{transform:translateY(-2px);border-color:rgba(45,212,191,.5)} .btn-ghost:hover .ic{background:rgba(45,212,191,.14)}
+  .trust{display:flex;gap:22px;flex-wrap:wrap;margin-top:34px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .trust b{color:var(--mut);font-weight:500}
+
+  /* double-bezel shell */
+  .shell{background:var(--shell);border:1px solid var(--line);border-radius:32px;padding:8px}
+  .core{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));border:1px solid var(--line2);border-radius:25px;
+    box-shadow:inset 0 1px 1px rgba(255,255,255,.08)}
+
+  /* hero terminal */
+  .term-wrap{margin-top:60px;max-width:760px}
+  .term{padding:0;overflow:hidden}
+  .term .bar{display:flex;align-items:center;gap:8px;padding:15px 20px;border-bottom:1px solid var(--line2)}
+  .term .bar i{width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.14)}
+  .term .bar .t{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .term .body{padding:26px 28px;font-family:var(--mono);font-size:clamp(12.5px,1.5vw,15px);line-height:2.1;min-height:150px}
+  .term .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .term .path{color:var(--ink)} .term .arr{color:var(--faint)}
+  .term .tgt{transition:color .6s var(--ease),opacity .6s var(--ease)}
+  .badge{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid var(--line);transition:all .6s var(--ease)}
+  .badge .d{width:7px;height:7px;border-radius:50%}
+  .st-on{color:var(--emer)} .st-on .d{background:var(--emer);box-shadow:0 0 9px var(--emer)}
+  .st-off{color:var(--warn)} .st-off .d{background:var(--warn);box-shadow:0 0 9px var(--warn)}
+  .st-mrg{color:var(--blue)} .st-mrg .d{background:var(--blue);box-shadow:0 0 9px var(--blue)}
+  .term .note{color:var(--faint);font-size:12.5px;margin-top:14px;transition:opacity .6s var(--ease)}
+
+  /* ---------- section heading ---------- */
+  section{padding:clamp(90px,14vw,170px) 0}
+  .sh-head{max-width:30ch}
+  .sh-head h2{font-family:var(--disp);font-weight:600;font-size:clamp(34px,5.4vw,64px);line-height:1.02;letter-spacing:-.03em;margin-top:22px}
+  .sh-head p{color:var(--mut);font-size:clamp(16px,1.9vw,20px);margin-top:20px;line-height:1.6;max-width:52ch}
+
+  /* ---------- bento ---------- */
+  .bento{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-top:54px}
+  .cell{padding:7px}
+  .cell .core{height:100%;padding:30px;display:flex;flex-direction:column;gap:14px;transition:transform .6s var(--ease),border-color .6s var(--ease)}
+  .cell:hover .core{transform:translateY(-4px);border-color:rgba(45,212,191,.32)}
+  .cell h3{font-family:var(--disp);font-weight:500;font-size:22px;letter-spacing:-.01em}
+  .cell p{color:var(--mut);font-size:15px;line-height:1.55}
+  .cell .ico{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:rgba(45,212,191,.1);border:1px solid rgba(45,212,191,.2);color:var(--teal)}
+  .cell .ico svg{width:20px;height:20px}
+  .c-2{grid-column:span 2} .c-3{grid-column:span 3} .c-4{grid-column:span 4} .c-6{grid-column:span 6}
+  .feat-big{grid-column:span 3;grid-row:span 2}
+  /* the loop visual in the big cell */
+  .loop{display:flex;align-items:center;gap:14px;margin-top:auto;flex-wrap:wrap}
+  .node{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .nchip{width:60px;height:60px;border-radius:16px;display:grid;place-items:center;border:1px solid var(--line);background:rgba(255,255,255,.02)}
+  .nchip svg{width:24px;height:24px}
+  .nchip.on{border-color:rgba(45,212,191,.5);color:var(--teal);box-shadow:0 0 26px rgba(45,212,191,.16) inset}
+  .nchip.loc{border-color:rgba(96,165,250,.5);color:var(--blue)}
+  .nlab{font-family:var(--mono);font-size:10.5px;color:var(--faint);text-align:center}
+  .conn{width:34px;height:2px;border-radius:2px}
+  .conn.x{background:repeating-linear-gradient(90deg,var(--warn) 0 6px,transparent 6px 12px)}
+  .conn.b{background:linear-gradient(90deg,rgba(96,165,250,.3),var(--blue))}
+
+  /* ---------- how (two layer) ---------- */
+  .how{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:54px}
+  .how .cell .core{padding:34px}
+  .how .num{font-family:var(--mono);font-size:13px;color:var(--teal);width:40px;height:40px;border-radius:12px;border:1px solid rgba(45,212,191,.4);display:grid;place-items:center}
+  .how h3{font-size:26px}
+  .how .tagm{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:6px}
+
+  /* ---------- install ---------- */
+  .install .core{padding:clamp(30px,5vw,56px);text-align:center;display:flex;flex-direction:column;align-items:center;gap:26px}
+  .install h2{font-family:var(--disp);font-weight:600;font-size:clamp(30px,5vw,56px);letter-spacing:-.03em;max-width:18ch}
+  .cmdbox{display:flex;align-items:center;gap:16px;width:100%;max-width:680px;padding:18px 18px 18px 24px;border-radius:18px;
+    background:rgba(0,0,0,.4);border:1px solid var(--line);font-family:var(--mono);font-size:clamp(12px,1.6vw,15px);text-align:left}
+  .cmdbox code{color:#dbe6f2;white-space:nowrap;overflow:auto;flex:1}
+  .cmdbox .c{color:var(--teal)} .cmdbox .h{color:var(--faint)}
+  .copy{flex:none;display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:12px;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);font-family:var(--sans);font-size:13px;font-weight:500;transition:all .4s var(--ease)}
+  .copy:hover{border-color:rgba(45,212,191,.5);background:rgba(45,212,191,.1)}
+
+  /* ---------- footer ---------- */
+  footer{padding:60px 0 70px;border-top:1px solid var(--line2)}
+  .foot{display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap}
+  .foot .l{font-family:var(--mono);font-size:12.5px;color:var(--faint)}
+  .footlinks{display:flex;gap:22px;font-size:14px;color:var(--mut)}
+  .footlinks a:hover{color:var(--ink)}
+
+  #toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,20px);background:var(--ink);color:#06120f;font-size:13px;font-weight:500;
+    padding:10px 20px;border-radius:999px;opacity:0;transition:opacity .4s var(--ease),transform .4s var(--ease);z-index:60;pointer-events:none}
+  #toast.on{opacity:1;transform:translate(-50%,0)}
+
+  @media (max-width:860px){
+    .navlinks,.nav-cta{display:none} .burger{display:block}
+    .bento{grid-template-columns:1fr;gap:14px} .cell,.feat-big{grid-column:span 1 !important;grid-row:auto !important}
+    .how{grid-template-columns:1fr}
+    .wrap{padding:0 20px}
+    section{padding:84px 0}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important} .rv{opacity:1;transform:none;filter:none}}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="logo">🐚</div>
-  <h1>limpet</h1>
-  <p class="tag">Use an <b>external drive as your primary storage</b> on macOS — without it breaking when you unplug. Folders cling to the drive, but survive every detach and re-attach themselves.</p>
-  <div class="pills">
-    <span class="pill"><span class="d" style="background:var(--ssd)"></span>drive = primary</span>
-    <span class="pill"><span class="d" style="background:var(--local)"></span>auto local failover</span>
-    <span class="pill"><span class="d" style="background:var(--good)"></span>no kext · no daemon · no network</span>
-  </div>
+<div class="orbs"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
+<div class="grid-tex"></div>
+<div class="grain"></div>
 
-  <div class="cards">
-    <a class="card" href="launch.html"><div class="h">▶ Launch video</div><div class="p">35-second animated explainer of the problem &amp; the fix.</div></a>
-    <a class="card" href="explainer.html"><div class="h">▥ Explainer deck</div><div class="p">11 slides — the full story, keyboard-navigable.</div></a>
-    <a class="card" href="https://github.com/notpritam/limpet"><div class="h">★ Source &amp; docs</div><div class="p">README, AGENTS.md, tests — one auditable bash file.</div></a>
+<nav>
+  <div class="navpill">
+    <a class="brand" href="#top"><span class="sh">🐚</span>limpet</a>
+    <div class="navlinks">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="launch.html">Film</a>
+      <a href="https://github.com/notpritam/limpet">GitHub</a>
+    </div>
+    <a class="nav-cta" href="#install">Install<span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></span></a>
+    <button class="burger" id="burger" aria-label="menu"><span></span><span></span></button>
   </div>
-
-  <div class="term">
-    <span class="hash"># install + set up</span><br/>
-    curl -fsSL https://raw.githubusercontent.com/notpritam/limpet/main/install.sh | bash<br/>
-    <span class="c">limpet</span> setup
-  </div>
-
-  <div class="foot">open source · <a href="https://github.com/notpritam/limpet/blob/main/LICENSE">MIT</a> · github.com/notpritam/limpet</div>
+</nav>
+<div id="overlay">
+  <a href="#how">How it works</a>
+  <a href="#features">Features</a>
+  <a href="launch.html">Film</a>
+  <a href="https://github.com/notpritam/limpet">GitHub</a>
 </div>
+
+<a id="top"></a>
+<header class="hero wrap">
+  <div class="rv"><span class="eyebrow"><span class="dot"></span>Open source · macOS · zero dependencies</span></div>
+  <h1 class="rv">Your external drive,<br/><span class="grad">finally unbreakable.</span></h1>
+  <p class="lead rv">Run your Mac off an external SSD as <b>primary storage</b> — and keep working the instant it's unplugged. limpet fails over to a local folder, then merges your work back when the drive returns. <b>Automatically.</b></p>
+  <div class="cta-row rv">
+    <a class="btn btn-primary" href="#install">Install limpet<span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></span></a>
+    <a class="btn btn-ghost" href="launch.html">Watch the 35s film<span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></a>
+  </div>
+  <div class="trust rv">
+    <span><b>~300</b> lines of bash</span><span><b>0</b> dependencies</span><span><b>11/11</b> e2e tests</span><span><b>no</b> kext · daemon · network</span>
+  </div>
+
+  <div class="term-wrap rv">
+    <div class="shell">
+      <div class="core term">
+        <div class="bar"><i></i><i></i><i></i><span class="t">~ live failover</span></div>
+        <div class="body">
+          <div class="row"><span class="path">~/Documents</span><span class="arr">→</span><span class="tgt" id="t-tgt">/Volumes/SSD/Documents</span><span class="badge st-on" id="t-badge"><span class="d"></span><span id="t-state">connected</span></span></div>
+          <div class="note" id="t-note">Working straight off the SSD — full speed, zero overhead.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- problem -->
+<section class="wrap" id="problem">
+  <div class="sh-head rv">
+    <span class="eyebrow"><span class="dot" style="background:var(--warn);box-shadow:0 0 10px var(--warn)"></span>The problem</span>
+    <h2>Unplug the drive, and the signpost points to nothing.</h2>
+    <p>Macs ship with small, pricey storage, so you move your files to a cheap external SSD and symlink to it. It's perfect — until the cable slips. Then saves fail, the Desktop empties, and a reboot can quietly split your files across two places. macOS has never had a “work offline, sync later” answer for this.</p>
+  </div>
+</section>
+
+<!-- features bento -->
+<section class="wrap" id="features">
+  <div class="sh-head rv">
+    <span class="eyebrow"><span class="dot"></span>The fix</span>
+    <h2>Built to be boringly reliable.</h2>
+    <p>Offline mode, for your drive. Everything below happens on its own — you never babysit a cable again.</p>
+  </div>
+  <div class="bento">
+    <div class="cell feat-big rv">
+      <div class="core">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13 2L3 14h7l-1 8 11-12h-7z"/></svg></div>
+        <h3>Instant failover</h3>
+        <p>A background guard rides a system hook that fires on any plug or unplug. Drive gone → your folder becomes a real local folder in under a second. Drive back → it re-links and merges. No permissions required.</p>
+        <div class="loop">
+          <div class="node"><div class="nchip on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/><path d="M12 10h6M12 14h4"/></svg></div><div class="nlab">connected</div></div>
+          <div class="conn x"></div>
+          <div class="node"><div class="nchip loc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 11l2 2 4-4"/></svg></div><div class="nlab">local · saves work</div></div>
+          <div class="conn b"></div>
+          <div class="node"><div class="nchip on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/><path d="M12 10h6M12 14h4"/></svg></div><div class="nlab">merged back</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="cell c-3 rv">
+      <div class="core">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <h3>Verified before delete</h3>
+        <p>Moving a folder onto the drive byte-checks every file before the original is ever removed. Fail the check, keep the original.</p>
+      </div>
+    </div>
+    <div class="cell c-3 rv">
+      <div class="core">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 7h11M8 12h11M8 17h7"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></div>
+        <h3>Never overwrites</h3>
+        <p>A name clash on merge keeps <b>both</b> copies, timestamped. You cannot lose a version.</p>
+      </div>
+    </div>
+    <div class="cell c-2 rv">
+      <div class="core">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/></svg></div>
+        <h3>Contained by design</h3>
+        <p>No kernel extensions, no daemons, no network. One file you can read.</p>
+      </div>
+    </div>
+    <div class="cell c-2 rv">
+      <div class="core">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5"/></svg></div>
+        <h3>Self-updating</h3>
+        <p>Ships via GitHub Releases. <code style="font-family:var(--mono);font-size:13px;color:var(--teal)">limpet update</code>, or opt into automatic.</p>
+      </div>
+    </div>
+    <div class="cell c-2 rv">
+      <div class="core">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg></div>
+        <h3>You, or your agent</h3>
+        <p>An interactive wizard for people; <code style="font-family:var(--mono);font-size:13px;color:var(--teal)">--drive --folders --yes</code> for scripts &amp; AI agents.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- how -->
+<section class="wrap" id="how">
+  <div class="sh-head rv">
+    <span class="eyebrow"><span class="dot"></span>Under the hood</span>
+    <h2>Two small pieces that cover each other.</h2>
+    <p>That's the entire tool. One reacts instantly; one finishes the job macOS won't let a background task do.</p>
+  </div>
+  <div class="how">
+    <div class="cell rv">
+      <div class="core">
+        <div class="num">01</div>
+        <h3>The guard</h3>
+        <p>A <code style="font-family:var(--mono);font-size:13px;color:var(--teal)">launchd</code> agent watching <code style="font-family:var(--mono);font-size:13px;color:var(--teal)">/Volumes</code>. It flips folders between symlink and real-local the moment a drive appears or vanishes. Only stats the mountpoint — so it needs no Full Disk Access.</p>
+        <div class="tagm">instant · permissionless · always on</div>
+      </div>
+    </div>
+    <div class="cell rv">
+      <div class="core">
+        <div class="num">02</div>
+        <h3>The helper</h3>
+        <p>macOS blocks background tasks from writing to external volumes, so the merge-back runs from your terminal — which is allowed — via a tiny throttled hook. It also keeps an offline-readable mirror of anything critical.</p>
+        <div class="tagm">merge-back · offline mirror · daily update check</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- install -->
+<section class="wrap install" id="install">
+  <div class="shell rv">
+    <div class="core">
+      <span class="eyebrow"><span class="dot"></span>Get started</span>
+      <h2>Two commands. You're protected.</h2>
+      <div class="cmdbox">
+        <code><span class="h"># install</span>  curl -fsSL https://raw.githubusercontent.com/notpritam/limpet/main/install.sh | bash</code>
+        <button class="copy" data-copy="curl -fsSL https://raw.githubusercontent.com/notpritam/limpet/main/install.sh | bash">Copy</button>
+      </div>
+      <div class="cmdbox">
+        <code><span class="h"># set up — pick a drive + folders</span>  <span class="c">limpet</span> setup</code>
+        <button class="copy" data-copy="limpet setup">Copy</button>
+      </div>
+      <a class="btn btn-primary" href="https://github.com/notpritam/limpet" style="margin-top:8px">Read the docs<span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg></span></a>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="foot">
+    <div class="l">🐚 limpet — © 2026 · MIT licensed</div>
+    <div class="footlinks">
+      <a href="https://github.com/notpritam/limpet">GitHub</a>
+      <a href="launch.html">Film</a>
+      <a href="explainer.html">Explainer</a>
+      <a href="https://github.com/notpritam/limpet/releases">Releases</a>
+    </div>
+  </div>
+</footer>
+
+<div id="toast">Copied to clipboard</div>
+
+<script>
+  // scroll reveal
+  const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.12,rootMargin:'0px 0px -8% 0px'});
+  document.querySelectorAll('.rv').forEach((el,i)=>{el.style.transitionDelay=(Math.min(i,4)*60)+'ms';io.observe(el)});
+
+  // mobile menu
+  const burger=document.getElementById('burger');
+  burger.addEventListener('click',()=>document.body.classList.toggle('menu-open'));
+  document.querySelectorAll('#overlay a').forEach(a=>a.addEventListener('click',()=>document.body.classList.remove('menu-open')));
+
+  // copy
+  const toast=document.getElementById('toast');let tt;
+  document.querySelectorAll('.copy').forEach(b=>b.addEventListener('click',async()=>{
+    try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1400);
+      toast.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>toast.classList.remove('on'),1600);}catch(e){}
+  }));
+
+  // hero live-failover cycle (transform/opacity/color only)
+  const states=[
+    {tgt:'/Volumes/SSD/Documents',cls:'st-on',label:'connected',note:'Working straight off the SSD — full speed, zero overhead.'},
+    {tgt:'(real local folder)',cls:'st-off',label:'unplugged',note:'Drive pulled — the folder went local. Saving keeps working, no errors.'},
+    {tgt:'/Volumes/SSD/Documents',cls:'st-mrg',label:'merging back',note:'Reconnected — offline edits move back on. A name clash keeps both.'},
+  ];
+  const tgtE=document.getElementById('t-tgt'),badgeE=document.getElementById('t-badge'),stE=document.getElementById('t-state'),noteE=document.getElementById('t-note');
+  let si=0;
+  setInterval(()=>{
+    si=(si+1)%states.length;const s=states[si];
+    tgtE.style.opacity=0;noteE.style.opacity=0;
+    setTimeout(()=>{
+      tgtE.textContent=s.tgt;tgtE.style.color=s.cls==='st-off'?'var(--warn)':'var(--ink)';tgtE.style.opacity=1;
+      badgeE.className='badge '+s.cls;stE.textContent=s.label;noteE.textContent=s.note;noteE.style.opacity=1;
+    },380);
+  },2800);
+</script>
 </body>
 </html>
