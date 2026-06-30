@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<!-- ABOUTME: Generic, audience-facing slide deck explaining the problem limpet solves and how it works. -->
+<!-- ABOUTME: Open in any browser; navigate with arrow keys / space, or the on-screen arrows. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>limpet — external drive as primary storage, without the risk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0a0e16; --bg2:#0e1422; --text:#e9eef7; --muted:#8a97ab; --faint:#5b6678;
+    --line:rgba(255,255,255,.08); --card:rgba(255,255,255,.025);
+    --ssd:#2dd4bf; --local:#60a5fa; --warn:#fbbf24; --good:#34d399;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 78% -10%, rgba(45,212,191,.10), transparent 60%),
+      radial-gradient(900px 600px at 0% 110%, rgba(96,165,250,.10), transparent 55%),
+      linear-gradient(180deg,var(--bg),var(--bg2));
+    color:var(--text); font-family:var(--sans); overflow:hidden; -webkit-font-smoothing:antialiased;
+  }
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.35;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:48px 48px; mask-image:radial-gradient(circle at 50% 40%,#000,transparent 85%);}
+  #bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--ssd),var(--local));width:0;transition:width .4s cubic-bezier(.4,0,.2,1);z-index:10;box-shadow:0 0 18px rgba(45,212,191,.5)}
+  .deck{position:relative;height:100%;width:100%}
+  .slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:clamp(28px,7vw,120px);gap:26px;opacity:0;visibility:hidden;transform:translateY(22px) scale(.99);transition:opacity .5s ease,transform .5s ease;}
+  .slide.active{opacity:1;visibility:visible;transform:none}
+  .slide.active .reveal{animation:rise .6s both}
+  .slide.active .reveal:nth-child(2){animation-delay:.06s}
+  .slide.active .reveal:nth-child(3){animation-delay:.12s}
+  .slide.active .reveal:nth-child(4){animation-delay:.18s}
+  .slide.active .reveal:nth-child(5){animation-delay:.24s}
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--ssd);display:flex;align-items:center;gap:12px}
+  .eyebrow::before{content:"";width:30px;height:1px;background:var(--ssd);opacity:.6}
+  h1{font-size:clamp(34px,6vw,76px);line-height:1.02;font-weight:800;letter-spacing:-.025em;max-width:18ch}
+  h2{font-size:clamp(28px,4.6vw,54px);line-height:1.05;font-weight:700;letter-spacing:-.02em;max-width:20ch}
+  .lead{font-size:clamp(17px,2vw,23px);line-height:1.5;color:#c4cdda;max-width:62ch;font-weight:400}
+  .lead b{color:#fff;font-weight:600}
+  .muted{color:var(--muted)} .accent{color:var(--ssd)} .blue{color:var(--local)} .amber{color:var(--warn)}
+  ul.points{list-style:none;display:flex;flex-direction:column;gap:16px;max-width:62ch}
+  ul.points li{display:flex;gap:14px;align-items:flex-start;font-size:clamp(16px,1.8vw,20px);line-height:1.45;color:#cdd6e3}
+  ul.points li .dot{flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;margin-top:2px;background:rgba(45,212,191,.14);color:var(--ssd);font-size:13px;font-weight:700}
+  .diagram{display:flex;align-items:center;gap:clamp(16px,3vw,40px);flex-wrap:wrap;margin-top:6px}
+  .node{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:130px}
+  .chip{width:clamp(96px,11vw,128px);height:clamp(96px,11vw,128px);border-radius:22px;display:grid;place-items:center;border:1px solid var(--line);background:var(--card);position:relative;transition:.4s}
+  .chip svg{width:46%;height:46%}
+  .chip.ssd{border-color:rgba(45,212,191,.45);box-shadow:0 0 40px rgba(45,212,191,.18) inset,0 8px 40px rgba(45,212,191,.12)}
+  .chip.local{border-color:rgba(96,165,250,.45);box-shadow:0 0 40px rgba(96,165,250,.16) inset}
+  .chip.dim{opacity:.32;filter:grayscale(.6)}
+  .chip .badge{position:absolute;top:-10px;right:-10px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:800;color:#06231e}
+  .nlabel{font-family:var(--mono);font-size:13px;color:var(--muted);text-align:center}
+  .nlabel b{color:var(--text);font-weight:600}
+  .link{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:90px}
+  .link .ln{width:clamp(60px,8vw,110px);height:2px;border-radius:2px;position:relative}
+  .ln.solid{background:linear-gradient(90deg,var(--ssd),rgba(45,212,191,.3))}
+  .ln.solid::after{content:"";position:absolute;right:-2px;top:-4px;border-left:9px solid var(--ssd);border-top:5px solid transparent;border-bottom:5px solid transparent}
+  .ln.broken{background:repeating-linear-gradient(90deg,var(--warn) 0 7px,transparent 7px 14px)}
+  .ln.back{background:linear-gradient(90deg,rgba(96,165,250,.3),var(--local))}
+  .ln.back::before{content:"";position:absolute;left:-2px;top:-4px;border-right:9px solid var(--local);border-top:5px solid transparent;border-bottom:5px solid transparent}
+  .lcap{font-family:var(--mono);font-size:11px;letter-spacing:.05em}
+  .grid2{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(24px,4vw,64px);align-items:center}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+  .pill{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12.5px;color:var(--muted);border:1px solid var(--line);background:var(--card);padding:7px 13px;border-radius:999px}
+  .pill .d{width:8px;height:8px;border-radius:50%}
+  .pillrow{display:flex;gap:10px;flex-wrap:wrap}
+  .num{font-family:var(--mono);font-size:15px;color:var(--ssd);border:1px solid rgba(45,212,191,.4);width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:700}
+  code{font-family:var(--mono);font-size:.92em;background:rgba(255,255,255,.06);border:1px solid var(--line);padding:2px 8px;border-radius:7px;color:#dbe6f2}
+  .cmd{font-family:var(--mono);font-size:clamp(14px,1.5vw,17px);background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:12px;padding:18px 20px;color:#dbe6f2;line-height:1.9;max-width:60ch}
+  .cmd .c{color:var(--ssd)} .cmd .hash{color:var(--faint)}
+  .nav{position:fixed;bottom:24px;right:28px;display:flex;align-items:center;gap:14px;z-index:10}
+  .dots{display:flex;gap:7px;margin-right:6px}
+  .dots i{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:.3s;cursor:pointer}
+  .dots i.on{background:var(--ssd);width:22px;border-radius:4px}
+  .arw{width:42px;height:42px;border-radius:11px;border:1px solid var(--line);background:var(--card);color:var(--text);display:grid;place-items:center;cursor:pointer;transition:.2s;font-size:18px}
+  .arw:hover{border-color:var(--ssd);color:var(--ssd);background:rgba(45,212,191,.07)}
+  .counter{position:fixed;bottom:30px;left:28px;font-family:var(--mono);font-size:13px;color:var(--faint);z-index:10}
+  .counter b{color:var(--text)}
+  .hint{position:fixed;top:22px;right:28px;font-family:var(--mono);font-size:11.5px;color:var(--faint);z-index:10;letter-spacing:.04em}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .shell{font-size:clamp(40px,7vw,84px)}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div class="hint">← → to navigate</div>
+<div class="deck" id="deck">
+
+  <!-- 1 TITLE -->
+  <section class="slide">
+    <div class="eyebrow reveal">open source · macOS · single-file bash</div>
+    <h1 class="reveal"><span class="shell">🐚</span> limpet</h1>
+    <p class="lead reveal">Use an <b>external drive as your primary storage</b> on macOS — without it breaking when you unplug. Your folders cling to the drive, but survive every detach and re-attach themselves.</p>
+    <div class="pillrow reveal">
+      <span class="pill"><span class="d" style="background:var(--ssd)"></span>drive = primary</span>
+      <span class="pill"><span class="d" style="background:var(--local)"></span>auto local failover</span>
+      <span class="pill"><span class="d" style="background:var(--good)"></span>no kext · no daemon · no network</span>
+    </div>
+  </section>
+
+  <!-- 2 THE SETUP -->
+  <section class="slide">
+    <div class="grid2">
+      <div>
+        <div class="eyebrow reveal">What people do</div>
+        <h2 class="reveal" style="margin:18px 0">Mac storage is small and pricey — so you put your files on an external SSD.</h2>
+        <p class="lead reveal">Documents, Downloads, Desktop, whole project folders — moved onto a cheap fast drive, with symlinks pointing the way. The internal disk stays empty. It works beautifully.</p>
+      </div>
+      <div class="reveal">
+        <div class="diagram" style="justify-content:center">
+          <div class="node">
+            <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#8a97ab" stroke-width="1.6"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 18l3 2h12l3-2"/></svg></div>
+            <div class="nlabel"><b>Your Mac</b><br/>folders (signposts)</div>
+          </div>
+          <div class="link"><span class="lcap accent">points to →</span><span class="ln solid"></span></div>
+          <div class="node">
+            <div class="chip ssd"><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="1.3" fill="#2dd4bf"/><path d="M12 9h6M12 12h6M12 15h4"/></svg></div>
+            <div class="nlabel"><b>External SSD</b><br/>real files</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 THE PROBLEM -->
+  <section class="slide">
+    <div class="grid2">
+      <div>
+        <div class="eyebrow reveal" style="color:var(--warn)"><span style="background:var(--warn)" class="d"></span>The problem</div>
+        <h2 class="reveal" style="margin:18px 0">Unplug the drive, and the signpost points to <span class="amber">nothing</span>.</h2>
+        <p class="lead reveal">Saves fail. Apps error. Desktop and Documents look empty. And a reboot can quietly recreate empty folders — <b>splitting your files across two places</b>. macOS has no built-in "work offline, sync later" for this.</p>
+      </div>
+      <div class="reveal">
+        <div class="diagram" style="justify-content:center">
+          <div class="node">
+            <div class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#8a97ab" stroke-width="1.6"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 18l3 2h12l3-2"/></svg></div>
+            <div class="nlabel"><b>Your Mac</b></div>
+          </div>
+          <div class="link"><span class="lcap amber">broken ✕</span><span class="ln broken"></span></div>
+          <div class="node">
+            <div class="chip ssd dim"><svg viewBox="0 0 24 24" fill="none" stroke="#8a97ab" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="1.3"/><path d="M12 9h6M12 12h6"/></svg></div>
+            <div class="nlabel muted">unplugged</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 WHY IT MATTERS -->
+  <section class="slide">
+    <div class="eyebrow reveal">Why it matters</div>
+    <h2 class="reveal" style="max-width:24ch">The drive is connected 99% of the time. It's the other 1% that hurts.</h2>
+    <p class="lead reveal">A bumped cable. An accidental eject. Grabbing the laptop and walking off. <b>One small mistake shouldn't break your whole workflow</b> — or risk your files.</p>
+    <ul class="points reveal">
+      <li><span class="dot">✓</span><span>Keep the internal drive empty <span class="muted">— the whole point of going external.</span></span></li>
+      <li><span class="dot">✓</span><span>…<b>and</b> never let a disconnect interrupt what you're doing.</span></li>
+    </ul>
+  </section>
+
+  <!-- 5 THE IDEA -->
+  <section class="slide">
+    <div class="eyebrow reveal">The idea, in one line</div>
+    <h1 class="reveal" style="font-size:clamp(30px,5.2vw,62px);max-width:24ch">Offline mode — for your <span class="accent">drive</span>.</h1>
+    <p class="lead reveal">Like a limpet clings to its rock yet detaches with the tide: your folders ride the SSD when it's there, and the instant it's gone they become normal local folders so you keep working. When the drive returns, your offline work moves back on — <b>automatically.</b></p>
+    <div class="pillrow reveal">
+      <span class="pill"><span class="d" style="background:var(--ssd)"></span>connected → on the SSD</span>
+      <span class="pill"><span class="d" style="background:var(--warn)"></span>unplugged → works locally</span>
+      <span class="pill"><span class="d" style="background:var(--local)"></span>back → merged up</span>
+    </div>
+  </section>
+
+  <!-- 6 PART 1 -->
+  <section class="slide">
+    <div class="reveal"><span class="num">1</span></div>
+    <div class="eyebrow reveal">How it works — the guard</div>
+    <h2 class="reveal" style="max-width:24ch">A tiny watcher reacts to plug/unplug in <span class="accent">under a second</span>.</h2>
+    <p class="lead reveal">It rides a system hook that fires whenever any drive mounts or unmounts. Drive gone → it flips your folders to real local folders so saving never fails. It only checks the mountpoint and swaps local links, so it needs <b>no special permissions.</b></p>
+    <p class="tag reveal">launchd · WatchPaths /Volumes · no Full Disk Access required</p>
+  </section>
+
+  <!-- 7 PART 2 -->
+  <section class="slide">
+    <div class="reveal"><span class="num">2</span></div>
+    <div class="eyebrow reveal">How it works — the helper</div>
+    <h2 class="reveal" style="max-width:25ch">When the drive's back, your offline work moves <span class="blue">back onto it</span>.</h2>
+    <p class="lead reveal">macOS won't let a silent background task write to an external drive (a security rule). So that step runs from your <b>terminal</b>, which is allowed — a tiny throttled hook that merges offline files back and refreshes an offline-readable copy of anything critical.</p>
+    <p class="tag reveal">two layers that cover each other: one reacts instantly, one finishes the job</p>
+  </section>
+
+  <!-- 8 SAFETY -->
+  <section class="slide">
+    <div class="eyebrow reveal" style="color:var(--good)"><span class="d" style="background:var(--good)"></span>Safety by design</div>
+    <h2 class="reveal" style="margin-bottom:8px">Built so it <span style="color:var(--good)">cannot lose data</span>.</h2>
+    <ul class="points reveal">
+      <li><span class="dot">✓</span><span><b>Verified copy before delete</b> — every file is byte-checked before the original is removed.</span></li>
+      <li><span class="dot">✓</span><span><b>Never overwrites</b> — a name clash on merge keeps <b>both</b> copies.</span></li>
+      <li><span class="dot">✓</span><span><b>No kernel extensions, no servers, no network</b> — ~300 lines of bash you can read.</span></li>
+      <li><span class="dot" style="background:rgba(251,191,36,.14);color:var(--warn)">!</span><span><b>Not a backup.</b> limpet keeps you resilient to unplugs — it complements Time Machine, doesn't replace it.</span></li>
+    </ul>
+  </section>
+
+  <!-- 9 THE LOOP -->
+  <section class="slide">
+    <div class="eyebrow reveal">The whole loop</div>
+    <h2 class="reveal" style="margin-bottom:10px">Three states, fully automatic.</h2>
+    <div class="diagram reveal" style="margin-top:18px">
+      <div class="node">
+        <div class="chip ssd"><span class="badge" style="background:var(--good)">✓</span><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="1.3" fill="#2dd4bf"/><path d="M12 9h6M12 12h6"/></svg></div>
+        <div class="nlabel"><b>Connected</b><br/>files on the SSD</div>
+      </div>
+      <div class="link"><span class="lcap amber">unplug</span><span class="ln broken"></span></div>
+      <div class="node">
+        <div class="chip local"><svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="1.6"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 11l2 2 4-4"/></svg></div>
+        <div class="nlabel"><b>Working locally</b><br/>saving still works</div>
+      </div>
+      <div class="link"><span class="lcap blue">reconnect</span><span class="ln back"></span></div>
+      <div class="node">
+        <div class="chip ssd"><span class="badge" style="background:var(--good)">✓</span><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="1.3" fill="#2dd4bf"/><path d="M12 9h6M12 12h6"/></svg></div>
+        <div class="nlabel"><b>Synced back</b><br/>offline work merged</div>
+      </div>
+    </div>
+    <p class="lead reveal" style="margin-top:20px">You never touch any of it. It just happens.</p>
+  </section>
+
+  <!-- 10 QUICK START -->
+  <section class="slide">
+    <div class="eyebrow reveal">Try it</div>
+    <h2 class="reveal" style="margin-bottom:6px">Three commands.</h2>
+    <div class="cmd reveal">
+      <span class="hash"># install</span><br/>
+      curl -fsSL https://raw.githubusercontent.com/notpritam/limpet/main/install.sh | bash<br/><br/>
+      <span class="hash"># set up — pick a drive + folders</span><br/>
+      <span class="c">limpet</span> setup<br/><br/>
+      <span class="hash"># check anytime</span><br/>
+      <span class="c">limpet</span> status
+    </div>
+    <p class="tag reveal">humans use the wizard · scripts &amp; agents use <code>--drive … --folders … --yes</code></p>
+  </section>
+
+  <!-- 11 CLOSING -->
+  <section class="slide">
+    <div class="eyebrow reveal">Why it exists</div>
+    <h1 class="reveal" style="max-width:20ch">Nothing off-the-shelf does this <span class="accent">safely</span> on a Mac.</h1>
+    <p class="lead reveal">The drive-pooling tools don't run on macOS; the ones that do break the instant the drive goes offline; sync apps double your storage and run a service. limpet is one auditable bash file — the most contained option. Open source, MIT.</p>
+    <div class="pillrow reveal">
+      <span class="pill"><span class="d" style="background:var(--good)"></span>github.com/notpritam/limpet</span>
+      <span class="pill"><span class="d" style="background:var(--ssd)"></span>contributions welcome</span>
+    </div>
+  </section>
+
+</div>
+
+<div class="counter"><b id="cur">1</b> / <span id="tot">11</span></div>
+<div class="nav">
+  <div class="dots" id="dots"></div>
+  <div class="arw" id="prev">‹</div>
+  <div class="arw" id="next">›</div>
+</div>
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const dotsBox=document.getElementById('dots'),bar=document.getElementById('bar'),cur=document.getElementById('cur');
+  document.getElementById('tot').textContent=slides.length;
+  let i=0;
+  slides.forEach((_,n)=>{const d=document.createElement('i');d.onclick=()=>go(n);dotsBox.appendChild(d)});
+  const dots=[...dotsBox.children];
+  function go(n){i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    dots.forEach((d,k)=>d.classList.toggle('on',k===i));
+    bar.style.width=((i+1)/slides.length*100)+'%';cur.textContent=i+1;}
+  const next=()=>go(i+1),prev=()=>go(i-1);
+  document.getElementById('next').onclick=next;document.getElementById('prev').onclick=prev;
+  addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();next()}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev()}
+    else if(e.key==='Home')go(0);else if(e.key==='End')go(slides.length-1);});
+  go(0);
+</script>
+</body>
+</html>
