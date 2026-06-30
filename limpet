@@ -13,6 +13,7 @@ STATE_DIR="${LIMPET_STATE_DIR:-$HOME/.local/state/limpet}"
 LOG="$STATE_DIR/limpet.log"
 LABEL="com.limpet.guard"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+REPO="${LIMPET_REPO:-notpritam/limpet}"
 SELF="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)/$(basename "$0")"
 
 DRY_RUN="${LIMPET_DRY_RUN:-0}"
@@ -47,6 +48,7 @@ logln(){ mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s %s\n' "$(ts)" "$*" >> "$L
 DRIVE=""
 FOLDERS=()
 MIRROR_DEST="$HOME/.limpet/mirror"
+AUTO_UPDATE=0
 
 load_config() { [ -f "$CONFIG" ] && . "$CONFIG"; }
 require_config() {
@@ -60,6 +62,7 @@ save_config() {
     printf 'DRIVE=%q\n' "$DRIVE"
     printf 'FOLDERS=('; for f in "${FOLDERS[@]}"; do printf '%q ' "$f"; done; printf ')\n'
     printf 'MIRROR_DEST=%q\n' "$MIRROR_DEST"
+    printf 'AUTO_UPDATE=%q\n' "$AUTO_UPDATE"
   } > "$CONFIG"
   [ -f "$MIRROR_LIST" ] || cat > "$MIRROR_LIST" <<EOF
 # limpet — paths under the drive to keep mirrored to a local fallback copy,
@@ -202,7 +205,8 @@ $HOOK_BEGIN
 if [ -n "\${PS1:-}" ] || [[ \$- == *i* ]]; then ( \
   _ls="$STATE_DIR"; mkdir -p "\$_ls" 2>/dev/null; _now=\$(date +%s); \
   if [ \$(( _now - \$(cat "\$_ls/guard.stamp" 2>/dev/null || echo 0) )) -ge 60 ]; then echo "\$_now" > "\$_ls/guard.stamp"; "$SELF" __guard >/dev/null 2>&1; fi; \
-  if [ \$(( _now - \$(cat "\$_ls/mirror.stamp" 2>/dev/null || echo 0) )) -ge 3600 ]; then echo "\$_now" > "\$_ls/mirror.stamp"; "$SELF" __mirror >/dev/null 2>&1; fi \
+  if [ \$(( _now - \$(cat "\$_ls/mirror.stamp" 2>/dev/null || echo 0) )) -ge 3600 ]; then echo "\$_now" > "\$_ls/mirror.stamp"; "$SELF" __mirror >/dev/null 2>&1; fi; \
+  "$SELF" __autoupdate >/dev/null 2>&1 \
   ) &
 fi
 $HOOK_END
@@ -232,6 +236,60 @@ list_external_drives() { # prints mounted volumes that look like real external d
   done
 }
 
+# ----------------------------------------------------------------------------- self-update (GitHub Releases)
+_latest_version() { curl -fsSL --max-time 6 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | awk -F'"' '/"tag_name"/{print $4; exit}' | sed 's/^v//'; }
+_ver_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)" = "$1" ]; }
+_do_update() {
+  local v="$1" tmp; tmp="$(mktemp)"
+  curl -fsSL --max-time 30 "https://github.com/$REPO/releases/download/v$v/limpet" -o "$tmp" 2>/dev/null \
+    || curl -fsSL --max-time 30 "https://raw.githubusercontent.com/$REPO/v$v/limpet" -o "$tmp" 2>/dev/null || return 1
+  /bin/bash -n "$tmp" || return 1
+  chmod +x "$tmp"
+  if [ -w "$SELF" ]; then mv "$tmp" "$SELF"; else sudo mv "$tmp" "$SELF" 2>/dev/null || mv "$tmp" "$SELF"; fi
+}
+cmd_update() {
+  local check=0; [ "${1:-}" = "--check" ] && check=1
+  info "current v$LIMPET_VERSION — checking $REPO …"
+  local latest; latest="$(_latest_version)"
+  [ -n "$latest" ] || die "couldn't reach GitHub releases (offline?)."
+  if ! _ver_gt "$latest" "$LIMPET_VERSION"; then ok "already on the latest (v$LIMPET_VERSION)."; rm -f "$STATE_DIR/update-available"; return 0; fi
+  warn "update available: v$LIMPET_VERSION → ${B}v$latest${R}"
+  [ "$check" = 1 ] && { say "run ${B}limpet update${R} to install."; return 0; }
+  confirm "install v$latest now?" || return 0
+  _do_update "$latest" && { ok "updated to v$latest."; rm -f "$STATE_DIR/update-available"; } || die "update failed."
+}
+cmd_autoupdate() { # internal: daily check; auto-applies if AUTO_UPDATE=1, else records availability for a notice
+  load_config; mkdir -p "$STATE_DIR"; local now; now=$(date +%s)
+  [ $(( now - $(cat "$STATE_DIR/update-check.stamp" 2>/dev/null || echo 0) )) -ge 86400 ] || return 0
+  echo "$now" > "$STATE_DIR/update-check.stamp"
+  local latest; latest="$(_latest_version)"; [ -n "$latest" ] || return 0
+  if _ver_gt "$latest" "$LIMPET_VERSION"; then
+    if [ "${AUTO_UPDATE:-0}" = "1" ]; then _do_update "$latest" && logln "[update] auto-updated v$LIMPET_VERSION -> v$latest"; rm -f "$STATE_DIR/update-available"
+    else echo "$latest" > "$STATE_DIR/update-available"; fi
+  else rm -f "$STATE_DIR/update-available"; fi
+}
+_notice() { local a; a="$(cat "$STATE_DIR/update-available" 2>/dev/null)"; [ -n "$a" ] && _ver_gt "$a" "$LIMPET_VERSION" && [ -t 1 ] && warn "limpet ${B}v$a${R} is available — run ${B}limpet update${R}"; return 0; }
+
+# ----------------------------------------------------------------------------- list
+_is_managed() { local b="${1#$HOME/}"; case " ${FOLDERS[*]} " in *" $b "*) return 0;; esac; return 1; }
+cmd_list() {
+  require_config
+  title "managed folders → $DRIVE"
+  local f
+  for f in "${FOLDERS[@]}"; do
+    if [ -L "$HOME/$f" ]; then printf '  %s✓%s ~/%-12s → %s\n' "$GRN" "$R" "$f" "$(readlink "$HOME/$f")"
+    elif [ -d "$HOME/$f" ]; then printf '  %s•%s ~/%-12s %s(local — failover mode)%s\n' "$BLU" "$R" "$f" "$DIM" "$R"
+    else printf '  %s?%s ~/%-12s %s(missing)%s\n' "$YEL" "$R" "$f" "$DIM" "$R"; fi
+  done
+  title "other links into the drive ${DIM}(ad-hoc, made with \`limpet link\`)${R}"
+  local found=0 l tg
+  while IFS= read -r l; do
+    _is_managed "$l" && continue
+    tg="$(readlink "$l" 2>/dev/null)"; case "$tg" in "$DRIVE"/*) printf '  %s↪%s %s → %s\n' "$CYN" "$R" "${l/#$HOME/~}" "$tg"; found=1;; esac
+  done < <(find "$HOME" -maxdepth 2 -type l 2>/dev/null)
+  [ "$found" = 0 ] && say "  ${DIM}none${R}"
+}
+
 # ----------------------------------------------------------------------------- commands
 cmd_setup() {
   local pre_drive="" pre_folders="" pre_mirror=""
@@ -247,6 +305,11 @@ cmd_setup() {
   title "limpet setup"
   say "Make an external drive your primary storage, with automatic local failover."
   hr
+  if [ -f "$CONFIG" ]; then
+    load_config
+    ok "Existing limpet setup detected — drive ${B}$DRIVE${R}, folders: ${B}${FOLDERS[*]}${R}"
+    say "${DIM}Re-running is safe: already-linked folders are kept as-is (no re-copy).${R}"; hr
+  fi
 
   # 1) drive
   if [ -n "$pre_drive" ]; then DRIVE="$pre_drive"
@@ -275,6 +338,9 @@ cmd_setup() {
   ok "folders: ${B}${FOLDERS[*]}${R}"
 
   [ -n "$pre_mirror" ] && { mkdir -p "$CONFIG_DIR"; printf '%s\n' "${pre_mirror//,/$'\n'}" >> "$MIRROR_LIST"; }
+
+  # auto-update preference
+  if [ "$ASSUME_YES" != 1 ]; then confirm "Check for limpet updates automatically?" && AUTO_UPDATE=1 || AUTO_UPDATE=0; fi
 
   # 3) confirm
   say ""; warn "This will MOVE each folder's contents onto $DRIVE (verified copy first), replace them with"
@@ -393,6 +459,8 @@ ${B}COMMANDS${R}
   ${CYN}sync${R}             Run the failover/failback + mirror right now.
   ${CYN}link${R} <path>      Move any extra file/folder onto the drive and symlink it back.
   ${CYN}unlink${R} <path>    Bring a symlinked path back onto the local disk.
+  ${CYN}list${R}             List managed folders + any ad-hoc links into the drive.
+  ${CYN}update${R}           Update limpet to the latest release (--check just checks).
   ${CYN}uninstall${R}        Remove the guard + hook (optionally restore folders to local).
   ${CYN}help${R} | ${CYN}version${R}   This help / version.
 
@@ -415,6 +483,7 @@ main() {
   local args=(); while [ $# -gt 0 ]; do case "$1" in
     --yes|-y) ASSUME_YES=1;; --dry-run) DRY_RUN=1;; *) args+=("$1");; esac; shift; done
   set -- ${args[@]+"${args[@]}"}
+  _notice
   case "$cmd" in
     setup)        cmd_setup "$@";;
     status)       cmd_status "$@";;
@@ -422,9 +491,12 @@ main() {
     sync)         cmd_sync;;
     link)         cmd_link "$@";;
     unlink)       cmd_unlink "$@";;
+    list)         cmd_list;;
+    update)       cmd_update "$@";;
     uninstall)    cmd_uninstall;;
     __guard)      with_lock guard run_guard;;     # internal: called by launchd + hook
     __mirror)     with_lock mirror run_mirror;;   # internal: called by hook
+    __autoupdate) cmd_autoupdate;;                # internal: called by hook (daily)
     version|-v|--version) say "limpet $LIMPET_VERSION";;
     help|-h|--help) cmd_help;;
     *) err "unknown command: $cmd"; say "run ${B}limpet help${R}"; exit 1;;
