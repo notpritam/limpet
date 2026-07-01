@@ -546,7 +546,7 @@ cmd_status() {
 cmd_watch() {
   require_config
   if ! _ui_animated; then cmd_status; return 0; fi
-  local H=$(( ${#FOLDERS[@]} + 4 )) first=1 prev=-1 f t present frame=0
+  local H=$(( ${#FOLDERS[@]} + 4 )) first=1 f t present
   tput civis 2>/dev/null
   trap 'tput cnorm 2>/dev/null; printf "\n"; exit 0' INT TERM
   while :; do
@@ -560,12 +560,14 @@ cmd_watch() {
     printf '\r'; tput el; printf '\n'
     for f in "${FOLDERS[@]}"; do
       printf '\r'; tput el
-      if [ -L "$HOME/$f" ]; then t="$(readlink "$HOME/$f")"; printf '  %s✓%s %-12s %s→ %s%s\n' "$GRN" "$R" "~/$f" "$DIM" "$t" "$R"
+      if [ -L "$HOME/$f" ]; then t="$(readlink "$HOME/$f")"
+        if [ -e "$HOME/$f" ]; then printf '  %s✓%s %-12s %s→ %s%s\n' "$GRN" "$R" "~/$f" "$DIM" "$t" "$R"
+        else printf '  %s✗%s %-12s %s→ %s (broken — drive unplugged)%s\n' "$YEL" "$R" "~/$f" "$DIM" "$t" "$R"; fi
       elif [ -d "$HOME/$f" ]; then printf '  %s•%s %-12s %slocal — failover mode%s\n' "$BLU" "$R" "~/$f" "$DIM" "$R"
       else printf '  %s?%s %-12s %smissing%s\n' "$YEL" "$R" "~/$f" "$DIM" "$R"; fi
     done
     printf '\r'; tput el; printf '  %spress Ctrl-C to quit · redraws on plug / unplug%s\n' "$DIM" "$R"
-    prev="$present"; frame=$(( frame + 1 )); sleep 0.5
+    sleep 0.5
   done
 }
 
