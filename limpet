@@ -80,6 +80,31 @@ _bar_str() { # <pct> <width> -> "████▏░░░"  (plain; caller adds 
   printf '%s%s%s' "$(_rep █ "$full")" "$mid" "$(_rep ░ "$rest")"
 }
 
+# teal (#2dd4bf) → emerald (#34d399) truecolor gradient for the bar fill; flat fallback off-truecolor
+_TRUECOLOR=0; case "${COLORTERM:-}" in *truecolor*|*24bit*) _TRUECOLOR=1;; esac
+_GRAD=(); TRACK=""
+_build_grad() { # precompute per-cell 24-bit fg codes (teal→emerald) + a faint track colour
+  [ "$_TRUECOLOR" = 1 ] || return 0
+  local i=0 r g b c d=$(( BAR_W > 1 ? BAR_W - 1 : 1 ))
+  while [ "$i" -lt "$BAR_W" ]; do
+    r=$(( 45 + 7 * i / d )); g=$(( 212 - i / d )); b=$(( 191 - 38 * i / d ))
+    printf -v c '\033[38;2;%d;%d;%dm' "$r" "$g" "$b"; _GRAD[$i]="$c"; i=$(( i + 1 ))
+  done
+  printf -v TRACK '\033[38;2;74;80;90m'
+}
+_build_grad
+
+_bar_grad() { # <pct> <width> -> gradient-filled bar (teal→emerald) + faint track; truecolor only
+  local pct="${1:-0}" w="${2:-$BAR_W}"
+  [ "$pct" -gt 100 ] && pct=100; [ "$pct" -lt 0 ] && pct=0
+  local eighths=$(( pct * w * 8 / 100 )) full=$(( pct * w * 8 / 100 / 8 )) part out="" c=0
+  part=$(( eighths % 8 ))
+  while [ "$c" -lt "$full" ]; do out="$out${_GRAD[$c]}█"; c=$(( c + 1 )); done
+  if [ "$part" -gt 0 ] && [ "$full" -lt "$w" ]; then out="$out${_GRAD[$c]}${_BLK[$part]}"; c=$(( c + 1 )); fi
+  local rest=$(( w - c )); [ "$rest" -gt 0 ] && out="$out${TRACK}$(_rep ░ "$rest")"
+  printf '%s%s' "$out" "$R"
+}
+
 ROW_LABEL=(); ROW_STATE=(); ROW_PCT=(); ROW_TOTKB=(); ROW_DSTKB=()
 ROWS_H=0; SHOW_AGG=0; ROW_CUR=-1; FRAME=0
 
@@ -90,7 +115,7 @@ _rows_begin() { ROW_LABEL=(); ROW_STATE=(); ROW_PCT=(); ROW_TOTKB=(); ROW_DSTKB=
 _rows_add()   { ROW_LABEL+=("$1"); ROW_TOTKB+=("${2:-0}"); ROW_DSTKB+=(0); ROW_PCT+=(0); ROW_STATE+=(queued); }
 
 _row_line() { # <idx>
-  local i="$1" glyph gcls barcls
+  local i="$1" glyph gcls barcls barstr size
   case "${ROW_STATE[$i]}" in
     queued)   glyph='○'; gcls="$DIM";  barcls="$DIM" ;;
     done)     glyph='✓'; gcls="$GRN";  barcls="$GRN" ;;
@@ -98,13 +123,18 @@ _row_line() { # <idx>
     verifying)glyph="$(_spin_frame $FRAME)"; gcls="$CYN"; barcls="$CYN" ;;
     *)        glyph="$(_spin_frame $FRAME)"; gcls="$CYN"; barcls="$CYN" ;;
   esac
-  local size
+  # gradient fill for live/done rows when truecolor is available; flat elsewhere (queued/failed/no-truecolor)
+  if [ "$_TRUECOLOR" = 1 ] && [ "${ROW_STATE[$i]}" != queued ] && [ "${ROW_STATE[$i]}" != failed ]; then
+    barstr="$(_bar_grad "${ROW_PCT[$i]}" "$BAR_W")"
+  else
+    barstr="${barcls}$(_bar_str "${ROW_PCT[$i]}" "$BAR_W")${R}"
+  fi
   if [ "${ROW_STATE[$i]}" = queued ]; then size="queued"
   elif [ "${ROW_STATE[$i]}" = done ]; then size="$(_human_kb "${ROW_TOTKB[$i]}")"
   else size="$(_human_kb "${ROW_DSTKB[$i]}") / $(_human_kb "${ROW_TOTKB[$i]}")"; fi
-  printf '  %s%s%s %s%-12s%s %s%s%s  %s%3d%%%s   %s%s%s' \
+  printf '  %s%s%s %s%-12s%s %s  %s%3d%%%s   %s%s%s' \
     "$gcls" "$glyph" "$R" "$B" "${ROW_LABEL[$i]}" "$R" \
-    "$barcls" "$(_bar_str "${ROW_PCT[$i]}" "$BAR_W")" "$R" \
+    "$barstr" \
     "$gcls" "${ROW_PCT[$i]}" "$R" "$DIM" "$size" "$R"
 }
 _agg_line() {
