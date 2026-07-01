@@ -546,7 +546,7 @@ Expected: no syntax errors; `24 passed`; `11 passed`.
 - [ ] **Step 4: Golden-rule check — the hook's mirror path stays silent.** Run:
 
 ```bash
-SB="$(mktemp -d)"; mkdir -p "$SB/drv/keep"; echo a > "$SB/drv/keep/f"
+SB="$(mktemp -d)"; mkdir -p "$SB/drv/keep" "$SB/s"; echo a > "$SB/drv/keep/f"   # $SB/s = STATE_DIR: must exist or 2>>$LOG aborts rsync
 printf 'keep\n' > "$SB/mp.txt"
 esc=$(HOME="$SB" LIMPET_CONFIG_DIR="$SB/c" LIMPET_STATE_DIR="$SB/s" bash -c '
   source ./limpet; DRIVE="'"$SB"'/drv"; MIRROR_DEST="'"$SB"'/mir"; MIRROR_LIST="'"$SB"'/mp.txt"
