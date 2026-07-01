@@ -139,22 +139,69 @@
   .core{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));border:1px solid var(--line2);border-radius:25px;
     box-shadow:inset 0 1px 1px rgba(255,255,255,.08)}
 
-  /* hero terminal */
-  .term-wrap{margin-top:50px;max-width:720px;width:100%}
-  .term{padding:0;overflow:hidden}
-  .term .bar{display:flex;align-items:center;gap:8px;padding:15px 20px;border-bottom:1px solid var(--line2)}
-  .term .bar i{width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.14)}
-  .term .bar .t{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--faint)}
-  .term .body{padding:26px 28px;font-family:var(--mono);font-size:clamp(12.5px,1.5vw,15px);line-height:2.1;min-height:150px}
-  .term .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .term .path{color:var(--ink)} .term .arr{color:var(--faint)}
-  .term .tgt{transition:color .6s var(--ease),opacity .6s var(--ease)}
-  .badge{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid var(--line);transition:all .6s var(--ease)}
-  .badge .d{width:7px;height:7px;border-radius:50%}
-  .st-on{color:var(--emer)} .st-on .d{background:var(--emer);box-shadow:0 0 9px var(--emer)}
-  .st-off{color:var(--warn)} .st-off .d{background:var(--warn);box-shadow:0 0 9px var(--warn)}
-  .st-mrg{color:var(--blue)} .st-mrg .d{background:var(--blue);box-shadow:0 0 9px var(--blue)}
-  .term .note{color:var(--faint);font-size:12.5px;margin-top:14px;transition:opacity .6s var(--ease)}
+  /* hero live-failover window (realistic macOS) */
+  .term-wrap{margin-top:clamp(46px,6vw,66px);width:100%}
+  .macwin{width:100%;border-radius:15px;overflow:hidden;border:1px solid rgba(255,255,255,.1);
+    background:linear-gradient(180deg,rgba(16,18,21,.94),rgba(9,11,13,.96));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 44px 100px -46px rgba(0,0,0,.95),0 0 0 1px rgba(0,0,0,.5);
+    will-change:transform}
+  .macwin .tbar{position:relative;display:flex;align-items:center;height:44px;padding:0 16px;
+    background:linear-gradient(180deg,rgba(46,48,54,.92),rgba(34,36,41,.94));
+    border-bottom:1px solid rgba(0,0,0,.55);box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+  .macwin .lights{display:flex;gap:8px;align-items:center;z-index:1}
+  .macwin .light{width:12px;height:12px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+  .macwin .light svg{width:8px;height:8px;opacity:0;color:rgba(0,0,0,.6);transition:opacity .16s ease}
+  .macwin:hover .light svg{opacity:1}
+  .macwin .light.r{background:#ff5f57;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)}
+  .macwin .light.y{background:#febc2e;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)}
+  .macwin .light.g{background:#28c840;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)}
+  .macwin .ttl{position:absolute;left:0;right:0;text-align:center;font-family:var(--sans);font-size:13px;color:rgba(246,248,251,.42);pointer-events:none}
+  .macwin .ttl b{color:rgba(246,248,251,.68);font-weight:500}
+  .macwin .scan{height:2px;overflow:hidden;background:rgba(255,255,255,.02)}
+  .macwin .scan i{display:block;height:100%;width:38%;background:linear-gradient(90deg,transparent,rgba(45,212,191,.9),transparent);animation:scan 3.6s var(--ease) infinite}
+  @keyframes scan{0%{transform:translateX(-130%)}55%,100%{transform:translateX(360%)}}
+  .macwin .wbody{padding:clamp(24px,3vw,36px) clamp(24px,3.4vw,40px)}
+  .macwin .statusrow{display:flex;align-items:center;gap:clamp(12px,1.8vw,20px);flex-wrap:wrap;font-family:var(--mono);font-size:clamp(14px,1.7vw,20px)}
+  .macwin .path{color:var(--ink);letter-spacing:-.01em}
+  .macwin .lnk{position:relative;display:inline-block;width:clamp(30px,4.5vw,60px);height:16px;flex:none}
+  .macwin .lnk .line{position:absolute;left:0;right:12px;top:50%;height:2px;transform:translateY(-50%);border-radius:2px;
+    background:linear-gradient(90deg,rgba(45,212,191,.2),rgba(45,212,191,.75));transition:.55s var(--ease)}
+  .macwin .lnk .head{position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--teal);font-size:14px;line-height:1;transition:.5s}
+  .macwin .lnk .flow{position:absolute;top:50%;left:0;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:var(--teal);box-shadow:0 0 12px var(--teal);animation:flow 1.9s var(--ease) infinite}
+  @keyframes flow{0%{transform:translateX(0);opacity:0}18%{opacity:1}82%{opacity:1}100%{transform:translateX(46px);opacity:0}}
+  .macwin .tgtslot{position:relative;min-width:clamp(190px,25vw,340px);height:1.5em;flex:1 1 auto}
+  .macwin .tgtslot span{position:absolute;left:0;top:0;white-space:nowrap;opacity:0;transform:translateY(9px);
+    transition:opacity .5s var(--ease2),transform .55s var(--ease2)}
+  .macwin .tgtslot span.show{opacity:1;transform:none}
+  .macwin .tgt-local{color:var(--warn)}
+  .macwin[data-state="reconnected"] .tgt-drive{color:var(--blue)}
+  .macwin .pill{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-family:var(--sans);font-size:13px;font-weight:500;
+    padding:7px 15px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.02);
+    transition:color .55s var(--ease),border-color .55s var(--ease),background .55s var(--ease)}
+  .macwin .pill .d{width:8px;height:8px;border-radius:50%;transition:.55s}
+  .macwin[data-state="connected"] .pill{color:var(--emer);border-color:rgba(52,211,153,.38);background:rgba(52,211,153,.07)}
+  .macwin[data-state="connected"] .pill .d{background:var(--emer);box-shadow:0 0 10px var(--emer)}
+  .macwin[data-state="unplugged"] .pill{color:var(--warn);border-color:rgba(251,191,36,.42);background:rgba(251,191,36,.07)}
+  .macwin[data-state="unplugged"] .pill .d{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+  .macwin[data-state="reconnected"] .pill{color:var(--blue);border-color:rgba(96,165,250,.42);background:rgba(96,165,250,.07)}
+  .macwin[data-state="reconnected"] .pill .d{background:var(--blue);box-shadow:0 0 10px var(--blue)}
+  .macwin[data-state="unplugged"] .lnk .line{background:repeating-linear-gradient(90deg,var(--warn) 0 3px,transparent 3px 7px);opacity:.7}
+  .macwin[data-state="unplugged"] .lnk .head{color:var(--warn);opacity:.45}
+  .macwin[data-state="unplugged"] .lnk .flow{animation:none;opacity:0}
+  .macwin[data-state="reconnected"] .lnk .line{background:linear-gradient(90deg,rgba(96,165,250,.2),rgba(96,165,250,.75))}
+  .macwin[data-state="reconnected"] .lnk .head{color:var(--blue)}
+  .macwin[data-state="reconnected"] .lnk .flow{background:var(--blue);box-shadow:0 0 12px var(--blue)}
+  .macwin[data-state="unplugged"]{animation:jolt .5s var(--ease)}
+  @keyframes jolt{0%,100%{transform:translateX(0)}16%{transform:translateX(-4px)}32%{transform:translateX(3px)}48%{transform:translateX(-2px)}64%{transform:translateX(1px)}}
+  .macwin .log{margin-top:20px;border-top:1px solid var(--line2);padding-top:18px;font-family:var(--mono);
+    font-size:clamp(12px,1.35vw,14px);line-height:1.95;min-height:58px;color:var(--mut)}
+  .macwin .log .ln{opacity:0;transform:translateY(7px);animation:logrise .55s var(--ease2) forwards;white-space:pre-wrap;word-break:break-word}
+  @keyframes logrise{to{opacity:1;transform:none}}
+  .macwin .log .pr{color:var(--faint)}
+  .macwin .log .ok{color:var(--emer)} .macwin .log .wn{color:var(--warn)} .macwin .log .ac{color:var(--blue)} .macwin .log .dm{color:var(--faint)}
+  .macwin .log .cur{display:inline-block;width:8px;height:14px;background:var(--teal);vertical-align:-2px;margin-left:3px;animation:blink 1.1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media(prefers-reduced-motion:reduce){.macwin .scan i,.macwin .lnk .flow,.macwin[data-state="unplugged"]{animation:none}}
 
   /* ---------- section heading ---------- */
   section{padding-block:clamp(64px,6.2vw,90px);scroll-margin-top:100px}
@@ -287,13 +334,27 @@
   </div>
 
   <div class="term-wrap rv">
-    <div class="shell">
-      <div class="core term">
-        <div class="bar"><i></i><i></i><i></i><span class="t">~ live failover</span></div>
-        <div class="body">
-          <div class="row"><span class="path">~/Documents</span><span class="arr">→</span><span class="tgt" id="t-tgt">/Volumes/SSD/Documents</span><span class="badge st-on" id="t-badge"><span class="d"></span><span id="t-state">connected</span></span></div>
-          <div class="note" id="t-note">Working straight off the SSD — full speed, zero overhead.</div>
+    <div class="macwin" id="macwin" data-state="connected">
+      <div class="tbar">
+        <div class="lights">
+          <span class="light r"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 3l4 4M7 3l-4 4"/></svg></span>
+          <span class="light y"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.6 5h4.8"/></svg></span>
+          <span class="light g"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M5 2.6v4.8M2.6 5h4.8"/></svg></span>
         </div>
+        <span class="ttl"><b>Documents</b> &nbsp;—&nbsp; limpet guard</span>
+      </div>
+      <div class="scan"><i></i></div>
+      <div class="wbody">
+        <div class="statusrow">
+          <span class="path">~/Documents</span>
+          <span class="lnk"><span class="line"></span><span class="flow"></span><span class="head">▸</span></span>
+          <span class="tgtslot">
+            <span class="tgt-drive show">/Volumes/X9/Documents</span>
+            <span class="tgt-local">(real local folder)</span>
+          </span>
+          <span class="pill"><span class="d"></span><span id="pillState">Connected</span></span>
+        </div>
+        <div class="log" id="hlog"></div>
       </div>
     </div>
   </div>
@@ -461,22 +522,44 @@
       toast.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>toast.classList.remove('on'),1600);}catch(e){}
   }));
 
-  // hero live-failover cycle (transform/opacity/color only)
-  const states=[
-    {tgt:'/Volumes/SSD/Documents',cls:'st-on',label:'connected',note:'Working straight off the SSD — full speed, zero overhead.'},
-    {tgt:'(real local folder)',cls:'st-off',label:'unplugged',note:'Drive pulled — the folder went local. Saving keeps working, no errors.'},
-    {tgt:'/Volumes/SSD/Documents',cls:'st-mrg',label:'merging back',note:'Reconnected — offline edits move back on. A name clash keeps both.'},
-  ];
-  const tgtE=document.getElementById('t-tgt'),badgeE=document.getElementById('t-badge'),stE=document.getElementById('t-state'),noteE=document.getElementById('t-note');
-  let si=0;
-  setInterval(()=>{
-    si=(si+1)%states.length;const s=states[si];
-    tgtE.style.opacity=0;noteE.style.opacity=0;
-    setTimeout(()=>{
-      tgtE.textContent=s.tgt;tgtE.style.color=s.cls==='st-off'?'var(--warn)':'var(--ink)';tgtE.style.opacity=1;
-      badgeE.className='badge '+s.cls;stE.textContent=s.label;noteE.textContent=s.note;noteE.style.opacity=1;
-    },380);
-  },2800);
+  // hero live-failover window — realistic macOS, smooth state machine
+  const mac=document.getElementById('macwin');
+  if(mac){
+    const pill=document.getElementById('pillState');
+    const drive=mac.querySelector('.tgt-drive'),local=mac.querySelector('.tgt-local');
+    const hlog=document.getElementById('hlog');
+    const SEQ=[
+      {s:'connected',pill:'Connected',tgt:'drive',lines:[
+        [['pr','guard ❯ '],['dm','watch /Volumes · event '],['ok','mount X9']],
+        [['pr','guard ❯ '],['','~/Documents '],['ac','→'],['',' /Volumes/X9  '],['ok','linked ✓'],['dm','  full speed']]
+      ]},
+      {s:'unplugged',pill:'Unplugged',tgt:'local',lines:[
+        [['pr','guard ❯ '],['dm','watch /Volumes · event '],['wn','unmount X9']],
+        [['pr','guard ❯ '],['wn','failover'],['',' → real local folder  '],['ok','saves keep working ✓']]
+      ]},
+      {s:'reconnected',pill:'Reconnected',tgt:'drive',lines:[
+        [['pr','guard ❯ '],['dm','watch /Volumes · event '],['ok','mount X9']],
+        [['pr','helper ❯ '],['ac','merge-back'],['',' 4 files → /Volumes/X9  '],['dm','clash → '],['ok','kept both ✓']]
+      ]}
+    ];
+    let hi=0;
+    const paint=()=>{
+      const c=SEQ[hi];
+      mac.dataset.state=c.s;
+      pill.textContent=c.pill;
+      drive.classList.toggle('show',c.tgt==='drive');
+      local.classList.toggle('show',c.tgt==='local');
+      hlog.textContent='';
+      c.lines.forEach((segs,li)=>{
+        const ln=document.createElement('div');ln.className='ln';ln.style.animationDelay=(li*150)+'ms';
+        segs.forEach(([cls,txt])=>{const sp=document.createElement('span');if(cls)sp.className=cls;sp.textContent=txt;ln.appendChild(sp);});
+        if(li===c.lines.length-1){const cur=document.createElement('span');cur.className='cur';ln.appendChild(cur);}
+        hlog.appendChild(ln);
+      });
+      hi=(hi+1)%SEQ.length;
+    };
+    paint();setInterval(paint,3200);
+  }
 </script>
 </body>
 </html>
