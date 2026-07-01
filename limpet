@@ -99,7 +99,7 @@ _row_line() { # <idx>
     *)        glyph="$(_spin_frame $FRAME)"; gcls="$CYN"; barcls="$CYN" ;;
   esac
   local size
-  if [ "${ROW_STATE[$i]}" = queued ]; then size="${DIM}queued${R}"
+  if [ "${ROW_STATE[$i]}" = queued ]; then size="queued"
   elif [ "${ROW_STATE[$i]}" = done ]; then size="$(_human_kb "${ROW_TOTKB[$i]}")"
   else size="$(_human_kb "${ROW_DSTKB[$i]}") / $(_human_kb "${ROW_TOTKB[$i]}")"; fi
   printf '  %s%s%s %s%-12s%s %s%s%s  %s%3d%%%s   %s%s%s' \
@@ -155,8 +155,10 @@ spin() { # spin "label" -- cmd...
   if ! _ui_animated; then "$@"; return $?; fi
   "$@" & local pid=$! i=0
   tput civis 2>/dev/null
+  trap 'tput cnorm 2>/dev/null' INT TERM        # restore cursor if the user Ctrl-Cs mid-spin
   while kill -0 "$pid" 2>/dev/null; do printf '\r  %s%s%s %s' "$CYN" "$(_spin_frame $i)" "$R" "$label …"; tput el; i=$(( i + 1 )); sleep 0.08; done
   wait "$pid"; local st=$?
+  trap - INT TERM
   tput cnorm 2>/dev/null
   printf '\r'; tput el
   if [ "$st" = 0 ]; then ok "$label"; else err "$label"; fi
