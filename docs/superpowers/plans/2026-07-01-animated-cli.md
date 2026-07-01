@@ -29,7 +29,7 @@ Every task's requirements implicitly include these. Exact values from the spec +
 ## File Structure
 
 - **Modify `limpet`** — new `# ---- ui: animation` section; wrap `move_to_drive`, `cmd_setup`, `run_mirror`, `cmd_sync`, `cmd_update`; add `cmd_watch` + dispatch + help; bump version; source-guard `main`.
-- **Create `test/test-ui.sh`** — sources limpet; unit-tests pure helpers; characterization-tests `move_to_drive` + `_copy_poll`; asserts zero ESC bytes off-TTY.
+- **Create `test/test-ui.sh`** — sources limpet; unit-tests pure helpers; characterization-tests `move_to_drive` + `_run_poll`; asserts zero ESC bytes off-TTY.
 - **Create `docs/cli.html`** — the approved prototype, productionized as a site page.
 - **Modify `README.md`** — add `watch`, honest line-count, link `docs/cli.html`, version.
 - **Modify `docs/index.html`** — small "new in v0.2" link to `cli.html`.
@@ -250,7 +250,7 @@ _run_poll() { # <idx> <dst> -- cmd... : run the copy cmd in bg, poll dst size ->
 }
 ```
 
-- [ ] **Step 2: Refactor `move_to_drive`** (lines 99–114) to route the copy through `_copy_poll` and drive the row, keeping the verify/swap tail byte-for-byte. Replace the whole function with:
+- [ ] **Step 2: Refactor `move_to_drive`** (lines 99–114) to route the copy through `_run_poll` and drive the row, keeping the verify/swap tail byte-for-byte. Replace the whole function with:
 
 ```bash
 move_to_drive() {
@@ -408,7 +408,7 @@ git commit -m "feat(cli): stacked multi-folder progress block + aggregate in set
 - Consumes: `_ui_animated`, `_spin_frame`, colors.
 - Produces: `spin <label> -- <cmd...>` → runs cmd, returns its exit status, prints `✓/✗ label`.
 
-- [ ] **Step 1: Add `spin`.** After `_copy_poll` in the UI section, insert:
+- [ ] **Step 1: Add `spin`.** After `_run_poll` in the UI section, insert:
 
 ```bash
 spin() { # spin "label" -- cmd...
