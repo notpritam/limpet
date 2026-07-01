@@ -44,6 +44,42 @@ confirm() { # confirm "question"   (auto-yes with --yes)
 ts()  { date '+%Y-%m-%d %H:%M:%S'; }
 logln(){ mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s %s\n' "$(ts)" "$*" >> "$LOG"; }
 
+# ----------------------------------------------------------------------------- ui: animation layer
+BAR_W=22
+_SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+_BLK=('' ▏ ▎ ▍ ▌ ▋ ▊ ▉)     # sub-cell eighths; index 1..7 (0 unused)
+
+_ui_animated() { [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "$DRY_RUN" != 1 ]; }
+
+_human_kb() { # <kb> -> "512 KB" / "240 MB" / "1.5 GB"
+  local kb="${1:-0}"
+  if [ "$kb" -ge 1048576 ]; then
+    printf '%d.%d GB' "$(( kb / 1048576 ))" "$(( (kb % 1048576) * 10 / 1048576 ))"
+  elif [ "$kb" -ge 1024 ]; then
+    printf '%d MB' "$(( kb / 1024 ))"
+  else
+    printf '%d KB' "$kb"
+  fi
+}
+
+_spin_frame() { printf '%s' "${_SPIN[$(( ${1:-0} % 10 ))]}"; }
+
+_rep() { # <char> <count> -> char repeated count times.
+  # MUST use printf-pad + substitution, NOT a `out="$out█"` loop: bash 3.2 under a
+  # UTF-8 locale corrupts iterative multibyte self-append (verified — produces garbage).
+  local ch="$1" n="$2"; [ "$n" -le 0 ] && return 0
+  local s; s="$(printf "%${n}s" "")"; printf '%s' "${s// /$ch}"
+}
+
+_bar_str() { # <pct> <width> -> "████▏░░░"  (plain; caller adds color)
+  local pct="${1:-0}" w="${2:-$BAR_W}"
+  [ "$pct" -gt 100 ] && pct=100; [ "$pct" -lt 0 ] && pct=0
+  local eighths=$(( pct * w * 8 / 100 )) full=$(( pct * w * 8 / 100 / 8 )) part mid="" rest
+  part=$(( eighths % 8 )); rest=$(( w - full ))
+  if [ "$part" -gt 0 ] && [ "$full" -lt "$w" ]; then mid="${_BLK[$part]}"; rest=$(( rest - 1 )); fi
+  printf '%s%s%s' "$(_rep █ "$full")" "$mid" "$(_rep ░ "$rest")"
+}
+
 # ----------------------------------------------------------------------------- config
 DRIVE=""
 FOLDERS=()
@@ -502,4 +538,4 @@ main() {
     *) err "unknown command: $cmd"; say "run ${B}limpet help${R}"; exit 1;;
   esac
 }
-main "$@"
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then main "$@"; fi
