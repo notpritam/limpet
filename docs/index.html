@@ -6,7 +6,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>limpet — run your Mac off an external SSD, without it breaking when you unplug</title>
-<meta name="description" content="Rich enough for the Mac, not the storage upgrade? limpet runs macOS off an external SSD as primary storage — it auto-fails-over to a local folder the second you unplug, then merges your work back. Free, open source, ~300 lines of bash. No kext, no daemon, no network." />
+<meta name="description" content="Rich enough for the Mac, not the storage upgrade? limpet runs macOS off an external SSD as primary storage — it auto-fails-over to a local folder the second you unplug, then merges your work back. Free, open source, ~690 lines of bash. No kext, no daemon, no network." />
 <meta name="keywords" content="macOS external drive primary storage, external SSD Mac, run Mac from external SSD, move Documents to external drive Mac, Mac storage full, symlink failover macOS, offline files macOS alternative, mac external ssd primary, mergerfs macOS alternative, mac internal storage too small, limpet" />
 <meta name="author" content="Pritam Sharma" />
 <link rel="canonical" href="https://limpet.notpritam.in/" />
@@ -25,11 +25,11 @@
 <meta property="og:image:alt" content="limpet — external drive as primary storage on macOS, with automatic local failover" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="limpet — your external drive, finally unbreakable" />
-<meta name="twitter:description" content="Run macOS off an external SSD as primary storage — automatic local failover the moment you unplug. Free & open source, ~300 lines of bash." />
+<meta name="twitter:description" content="Run macOS off an external SSD as primary storage — automatic local failover the moment you unplug. Free & open source, ~690 lines of bash." />
 <meta name="twitter:image" content="https://limpet.notpritam.in/og.png" />
 <script type="application/ld+json">
 {"@context":"https://schema.org","@graph":[
-{"@type":"SoftwareApplication","name":"limpet","applicationCategory":"DeveloperApplication","operatingSystem":"macOS","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Run your Mac off an external SSD as primary storage, with automatic local failover when the drive is unplugged and conflict-safe merge-back when it returns.","url":"https://limpet.notpritam.in/","downloadUrl":"https://github.com/notpritam/limpet","softwareVersion":"0.1.0","license":"https://opensource.org/licenses/MIT","author":{"@type":"Person","name":"Pritam Sharma","url":"https://www.notpritam.in/"},"keywords":"macOS, external drive, primary storage, symlink, failover, offline files"},
+{"@type":"SoftwareApplication","name":"limpet","applicationCategory":"DeveloperApplication","operatingSystem":"macOS","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Run your Mac off an external SSD as primary storage, with automatic local failover when the drive is unplugged and conflict-safe merge-back when it returns.","url":"https://limpet.notpritam.in/","downloadUrl":"https://github.com/notpritam/limpet","softwareVersion":"0.2.0","license":"https://opensource.org/licenses/MIT","author":{"@type":"Person","name":"Pritam Sharma","url":"https://www.notpritam.in/"},"keywords":"macOS, external drive, primary storage, symlink, failover, offline files"},
 {"@type":"FAQPage","mainEntity":[
 {"@type":"Question","name":"Can I use an external drive as primary storage on macOS?","acceptedAnswer":{"@type":"Answer","text":"Yes. limpet moves the home folders you pick (Documents, Downloads, Desktop, project folders) onto an external SSD and symlinks to them, so the external drive is your primary storage and the internal disk stays nearly empty."}},
 {"@type":"Question","name":"What happens when I unplug the external drive?","acceptedAnswer":{"@type":"Answer","text":"A background guard detects the unplug within about a second and turns the affected folders back into real local folders, so saving keeps working with no errors. When the drive returns, limpet merges your offline work back onto it and never overwrites — a name clash keeps both copies."}},
@@ -346,8 +346,9 @@
     <a class="btn btn-ghost" href="launch.html">Watch the 35s video<span class="ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></a>
   </div>
   <div class="trust rv">
-    <span><b>~300</b> lines of bash</span><span><b>0</b> dependencies</span><span><b>11/11</b> e2e tests</span><span><b>no</b> kext · daemon · network</span>
+    <span><b>~690</b> lines of bash</span><span><b>0</b> dependencies</span><span><b>11/11</b> e2e tests</span><span><b>no</b> kext · daemon · network</span>
   </div>
+  <a href="/cli.html" class="quip rv">▶ <span>See the new v0.2 CLI in motion</span></a>
 
   <div class="term-wrap rv">
     <div class="macwin" id="macwin" data-state="connected">
@@ -489,7 +490,7 @@
     <p>The stuff you'd actually ask before running your whole Mac off a cable.</p>
   </div>
   <div class="faq rv">
-    <details><summary>Wait — is this safe? Will I lose files?</summary><div>No. limpet byte-verifies every copy before it deletes the original, and if two files ever clash it keeps <b>both</b>, timestamped. It's ~300 lines of bash you can read over one coffee. (It's not a backup, though — keep your Time Machine.)</div></details>
+    <details><summary>Wait — is this safe? Will I lose files?</summary><div>No. limpet byte-verifies every copy before it deletes the original, and if two files ever clash it keeps <b>both</b>, timestamped. It's ~690 lines of bash you can read over one coffee. (It's not a backup, though — keep your Time Machine.)</div></details>
     <details><summary>Are you rich enough for a Mac but not the storage upgrade?</summary><div>Guilty. I bought the Mac, looked at the storage-upgrade price, quietly closed the tab, and bought a cheap external SSD instead. Then it kept breaking every time the cable slipped. So — limpet.</div></details>
     <details><summary>Who is this actually for?</summary><div>Honestly? Me. It runs on my machine every day. I made it public because you're probably in the same boat — small internal disk, big external SSD. If it helps, <a href="https://github.com/notpritam/limpet">star it</a> or say hi.</div></details>
     <details><summary>Does it work with any drive and any folders?</summary><div>Any external volume, and whatever home folders you pick — Documents, Downloads, Desktop, entire project directories. <code>limpet link &lt;path&gt;</code> moves anything else onto the drive too.</div></details>

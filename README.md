@@ -15,7 +15,7 @@
   <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-fbbf24?style=flat-square">
 </p>
 
-**▶ [Website](https://limpet.notpritam.in/) · [Launch video](https://limpet.notpritam.in/launch.html) · [Explainer deck](https://limpet.notpritam.in/explainer.html)**
+**▶ [Website](https://limpet.notpritam.in/) · [Launch video](https://limpet.notpritam.in/launch.html) · [Explainer deck](https://limpet.notpritam.in/explainer.html) · [CLI preview](https://limpet.notpritam.in/cli.html)**
 
 </div>
 
@@ -29,7 +29,7 @@ A limpet is the little mollusk that clamps tight to its rock, yet detaches and r
 ~/Documents ─▶ /Volumes/X9/Documents      drive back → offline work merged in, never overwritten
 ```
 
-Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~300 lines you can read over one coffee.
+Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~690 lines, still one file, still zero dependencies — and now with a live progress UI (see the **[CLI preview](https://limpet.notpritam.in/cli.html)**).
 
 ---
 
@@ -113,6 +113,7 @@ A `mkdir`-based lock means the two never collide.
 |---|---|
 | `limpet setup` | Interactive wizard: pick a drive + folders, move them over, install the guard. |
 | `limpet status` | Drive + folder state. `--json` for machine-readable output. |
+| `limpet watch` | Live view of drive + folder state; redraws on plug/unplug (Ctrl-C to quit). |
 | `limpet list` | Managed folders + any ad-hoc links you've made into the drive. |
 | `limpet link <path>` | Move **any** extra file/folder onto the drive and symlink it back. |
 | `limpet unlink <path>` | Bring a symlinked path back onto the local disk. |
@@ -170,7 +171,7 @@ Turn on automatic checks during `limpet setup` (or set `AUTO_UPDATE=1` in the co
 
 - **Verified copy before delete.** When moving a folder onto the drive, limpet does a `ditto` copy, then byte-verifies a manifest of every file before removing the original. If verification fails, the original is left untouched.
 - **Never overwrites.** On reconnect, a file that exists in both places is kept as `name.local-<timestamp>` — you never lose either version.
-- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~300 lines of bash you can read in one sitting.
+- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~690 lines of bash you can read in one sitting.
 - **Not a backup.** limpet keeps your data *available and resilient to unplugs* — it is **not** a substitute for Time Machine or an offsite backup. Keep one.
 
 ---

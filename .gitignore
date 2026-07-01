@@ -6,3 +6,4 @@
 *.lock.d/
 .idea/
 .vscode/
+.superpowers/

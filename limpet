@@ -3,7 +3,7 @@
 # ABOUTME: Single-file, pure-bash CLI. No kernel extensions, no daemons, no network. See `limpet help`.
 set -uo pipefail
 
-LIMPET_VERSION="0.1.0"
+LIMPET_VERSION="0.2.0"
 
 # ----------------------------------------------------------------------------- paths
 CONFIG_DIR="${LIMPET_CONFIG_DIR:-$HOME/.config/limpet}"
@@ -43,6 +43,127 @@ confirm() { # confirm "question"   (auto-yes with --yes)
 
 ts()  { date '+%Y-%m-%d %H:%M:%S'; }
 logln(){ mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s %s\n' "$(ts)" "$*" >> "$LOG"; }
+
+# ----------------------------------------------------------------------------- ui: animation layer
+BAR_W=22
+_SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+_BLK=('' ▏ ▎ ▍ ▌ ▋ ▊ ▉)     # sub-cell eighths; index 1..7 (0 unused)
+
+_ui_animated() { [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "$DRY_RUN" != 1 ]; }
+
+_human_kb() { # <kb> -> "512 KB" / "240 MB" / "1.5 GB"
+  local kb="${1:-0}"
+  if [ "$kb" -ge 1048576 ]; then
+    printf '%d.%d GB' "$(( kb / 1048576 ))" "$(( (kb % 1048576) * 10 / 1048576 ))"
+  elif [ "$kb" -ge 1024 ]; then
+    printf '%d MB' "$(( kb / 1024 ))"
+  else
+    printf '%d KB' "$kb"
+  fi
+}
+
+_spin_frame() { printf '%s' "${_SPIN[$(( ${1:-0} % 10 ))]}"; }
+
+_rep() { # <char> <count> -> char repeated count times.
+  # MUST use printf-pad + substitution, NOT a `out="$out█"` loop: bash 3.2 under a
+  # UTF-8 locale corrupts iterative multibyte self-append (verified — produces garbage).
+  local ch="${1:-}" n="${2:-0}"; [ "$n" -le 0 ] && return 0
+  local s; s="$(printf "%${n}s" "")"; printf '%s' "${s// /$ch}"
+}
+
+_bar_str() { # <pct> <width> -> "████▏░░░"  (plain; caller adds color)
+  local pct="${1:-0}" w="${2:-$BAR_W}"
+  [ "$pct" -gt 100 ] && pct=100; [ "$pct" -lt 0 ] && pct=0
+  local eighths=$(( pct * w * 8 / 100 )) full=$(( pct * w * 8 / 100 / 8 )) part mid="" rest
+  part=$(( eighths % 8 )); rest=$(( w - full ))
+  if [ "$part" -gt 0 ] && [ "$full" -lt "$w" ]; then mid="${_BLK[$part]}"; rest=$(( rest - 1 )); fi
+  printf '%s%s%s' "$(_rep █ "$full")" "$mid" "$(_rep ░ "$rest")"
+}
+
+ROW_LABEL=(); ROW_STATE=(); ROW_PCT=(); ROW_TOTKB=(); ROW_DSTKB=()
+ROWS_H=0; SHOW_AGG=0; ROW_CUR=-1; FRAME=0
+
+_du_kb() { local k; k="$(du -sk "$1" 2>/dev/null | awk 'NR==1{print $1}')"; echo "${k:-0}"; }
+_in_block() { _ui_animated && [ "$ROW_CUR" -ge 0 ]; }
+
+_rows_begin() { ROW_LABEL=(); ROW_STATE=(); ROW_PCT=(); ROW_TOTKB=(); ROW_DSTKB=(); SHOW_AGG="${1:-0}"; ROWS_H=0; }
+_rows_add()   { ROW_LABEL+=("$1"); ROW_TOTKB+=("${2:-0}"); ROW_DSTKB+=(0); ROW_PCT+=(0); ROW_STATE+=(queued); }
+
+_row_line() { # <idx>
+  local i="$1" glyph gcls barcls
+  case "${ROW_STATE[$i]}" in
+    queued)   glyph='○'; gcls="$DIM";  barcls="$DIM" ;;
+    done)     glyph='✓'; gcls="$GRN";  barcls="$GRN" ;;
+    failed)   glyph='✗'; gcls="$RED";  barcls="$RED" ;;
+    verifying)glyph="$(_spin_frame $FRAME)"; gcls="$CYN"; barcls="$CYN" ;;
+    *)        glyph="$(_spin_frame $FRAME)"; gcls="$CYN"; barcls="$CYN" ;;
+  esac
+  local size
+  if [ "${ROW_STATE[$i]}" = queued ]; then size="queued"
+  elif [ "${ROW_STATE[$i]}" = done ]; then size="$(_human_kb "${ROW_TOTKB[$i]}")"
+  else size="$(_human_kb "${ROW_DSTKB[$i]}") / $(_human_kb "${ROW_TOTKB[$i]}")"; fi
+  printf '  %s%s%s %s%-12s%s %s%s%s  %s%3d%%%s   %s%s%s' \
+    "$gcls" "$glyph" "$R" "$B" "${ROW_LABEL[$i]}" "$R" \
+    "$barcls" "$(_bar_str "${ROW_PCT[$i]}" "$BAR_W")" "$R" \
+    "$gcls" "${ROW_PCT[$i]}" "$R" "$DIM" "$size" "$R"
+}
+_agg_line() {
+  local i=0 done=0 tot=0
+  while [ "$i" -lt "${#ROW_TOTKB[@]}" ]; do
+    tot=$(( tot + ROW_TOTKB[i] )); done=$(( done + ROW_TOTKB[i] * ROW_PCT[i] / 100 )); i=$(( i + 1 ))
+  done
+  printf '  %s▸%s %s%s of %s · verified byte-for-byte before removal%s' \
+    "$CYN" "$R" "$DIM" "$(_human_kb "$done")" "$(_human_kb "$tot")" "$R"
+}
+
+_rows_paint() {
+  _ui_animated || return 0
+  local i=0
+  while [ "$i" -lt "${#ROW_LABEL[@]}" ]; do _row_line "$i"; printf '\n'; i=$(( i + 1 )); done
+  [ "$SHOW_AGG" = 1 ] && { _agg_line; printf '\n'; }
+  ROWS_H=$(( ${#ROW_LABEL[@]} + ( SHOW_AGG == 1 ? 1 : 0 ) ))
+}
+_rows_update() {
+  _ui_animated || return 0
+  FRAME=$(( FRAME + 1 ))
+  tput cuu "$ROWS_H"
+  local i=0
+  while [ "$i" -lt "${#ROW_LABEL[@]}" ]; do printf '\r'; tput el; _row_line "$i"; printf '\n'; i=$(( i + 1 )); done
+  [ "$SHOW_AGG" = 1 ] && { printf '\r'; tput el; _agg_line; printf '\n'; }
+}
+_rows_state() { _in_block || return 0; ROW_STATE[$ROW_CUR]="$1"; _rows_update; }
+_rows_done()  { _in_block || return 0; ROW_STATE[$ROW_CUR]=done; ROW_PCT[$ROW_CUR]=100; _rows_update; }
+_rows_fail()  { _in_block || return 0; ROW_STATE[$ROW_CUR]=failed; _rows_update; }
+
+_run_poll() { # <idx> <dst> -- cmd... : run the copy cmd in bg, poll dst size -> row pct. Plain cmd off-TTY.
+  local idx="$1" dst="$2"; shift 2; [ "${1:-}" = "--" ] && shift
+  if ! _ui_animated || [ "$idx" -lt 0 ]; then "$@"; return $?; fi
+  local tot="${ROW_TOTKB[$idx]}" d p
+  ROW_STATE[$idx]=copying
+  "$@" & local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    d="$(_du_kb "$dst")"; ROW_DSTKB[$idx]="$d"
+    p=0; [ "$tot" -gt 0 ] && p=$(( d * 100 / tot )); [ "$p" -gt 99 ] && p=99
+    [ "$p" -lt "${ROW_PCT[$idx]}" ] && p="${ROW_PCT[$idx]}"   # monotonic
+    ROW_PCT[$idx]="$p"; _rows_update; sleep 0.2
+  done
+  wait "$pid"; return $?
+}
+
+spin() { # spin "label" -- cmd...
+  local label="$1"; shift; [ "${1:-}" = "--" ] && shift
+  if ! _ui_animated; then "$@"; return $?; fi
+  "$@" & local pid=$! i=0
+  tput civis 2>/dev/null
+  trap 'tput cnorm 2>/dev/null' INT TERM        # restore cursor if the user Ctrl-Cs mid-spin
+  while kill -0 "$pid" 2>/dev/null; do printf '\r  %s%s%s %s' "$CYN" "$(_spin_frame $i)" "$R" "$label …"; tput el; i=$(( i + 1 )); sleep 0.08; done
+  wait "$pid"; local st=$?
+  trap - INT TERM
+  tput cnorm 2>/dev/null
+  printf '\r'; tput el
+  if [ "$st" = 0 ]; then ok "$label"; else err "$label"; fi
+  return $st
+}
 
 # ----------------------------------------------------------------------------- config
 DRIVE=""
@@ -95,21 +216,26 @@ verify_copy() { # verify_copy <src> <dst>  -> 0 if identical
   else [ "$(shasum "$s" | awk '{print $1}')" = "$(shasum "$d" | awk '{print $1}')" ]; fi
 }
 
-# move_to_drive <abs-src> <abs-dst> : ditto-copy, verify, then delete src + symlink it to dst
+# move_to_drive <abs-src> <abs-dst> [label] : ditto-copy, verify, then delete src + symlink it to dst
 move_to_drive() {
-  local src="$1" dst="$2"
-  [ -L "$src" ] && { info "already a symlink: ${DIM}$src${R}"; return 0; }
+  local src="$1" dst="$2" label="${3:-$(basename "$dst")}"
+  [ -L "$src" ] && { _in_block && { _rows_done; return 0; }; info "already a symlink: ${DIM}$src${R}"; return 0; }
   [ -e "$src" ] || { ln -s "$dst" "$src"; return 0; }
+  local standalone=0
   if [ -e "$dst" ] && [ ! -L "$dst" ]; then
-    warn "destination already exists, verifying instead of copying: $dst"
+    _in_block || warn "destination already exists, verifying instead of copying: $dst"
   else
     if [ "$DRY_RUN" = 1 ]; then say "${DIM}[dry-run] ditto '$src' '$dst'${R}"; return 0; fi
-    ditto "$src" "$dst" || { err "copy failed: $src"; return 1; }
+    if _ui_animated && [ "$ROW_CUR" -lt 0 ]; then _rows_begin 0; _rows_add "$label" "$(_du_kb "$src")"; _rows_paint; ROW_CUR=0; standalone=1; fi
+    _run_poll "$ROW_CUR" "$dst" -- ditto "$src" "$dst" || { _rows_fail; err "copy failed: $src"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
   fi
   [ "$DRY_RUN" = 1 ] && { say "${DIM}[dry-run] verify + replace '$src' with symlink${R}"; return 0; }
-  verify_copy "$src" "$dst" || { err "verify FAILED — leaving original intact: $src"; return 1; }
+  _rows_state verifying
+  verify_copy "$src" "$dst" || { _rows_fail; err "verify FAILED — leaving original intact: $src"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
   chmod -N "$src" 2>/dev/null
-  rm -rf "$src" && ln -s "$dst" "$src" || { err "swap failed (data is safe at $dst)"; return 1; }
+  rm -rf "$src" && ln -s "$dst" "$src" || { _rows_fail; err "swap failed (data is safe at $dst)"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
+  _rows_done
+  [ "$standalone" = 1 ] && ROW_CUR=-1
   return 0
 }
 
@@ -154,15 +280,26 @@ run_mirror() {
   drive_present || { logln "[mirror] drive absent — keeping existing mirror"; return 0; }
   [ -f "$MIRROR_LIST" ] || return 0
   mkdir -p "$MIRROR_DEST"
-  local line src dst n=0
+  local line src dst n=0 entries=()
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"; case "$line" in ''|\#*) continue;; esac
-    src="$DRIVE/$line"; dst="$MIRROR_DEST/$line"
-    [ -e "$src" ] || { logln "[mirror] skip missing: $line"; continue; }
-    mkdir -p "$(dirname "$dst")"
-    if [ -d "$src" ]; then mkdir -p "$dst"; rsync -a --delete "$src/" "$dst/" 2>>"$LOG" && n=$((n+1))
-    else rsync -a "$src" "$dst" 2>>"$LOG" && n=$((n+1)); fi
+    [ -e "$DRIVE/$line" ] || { logln "[mirror] skip missing: $line"; continue; }
+    entries+=("$line")
   done < "$MIRROR_LIST"
+  [ "${#entries[@]}" -eq 0 ] && { logln "[mirror] done (0 mirrored)"; return 0; }
+
+  if _ui_animated; then title "Mirroring ${#entries[@]} path(s) → $MIRROR_DEST"; _rows_begin 0
+  for line in "${entries[@]}"; do _rows_add "$line" "$(_du_kb "$DRIVE/$line")"; done; _rows_paint; fi
+
+  local _i=0
+  for line in "${entries[@]}"; do
+    src="$DRIVE/$line"; dst="$MIRROR_DEST/$line"; mkdir -p "$(dirname "$dst")"
+    if _ui_animated; then ROW_CUR=$_i; else ROW_CUR=-1; fi   # NB: don't put _ui_animated in $(...) — [ -t 1 ] is false in a subshell pipe
+    if [ -d "$src" ]; then mkdir -p "$dst"; _run_poll "$ROW_CUR" "$dst" -- rsync -a --delete "$src/" "$dst/" 2>>"$LOG" && { n=$((n+1)); _rows_done; } || _rows_fail
+    else _run_poll "$ROW_CUR" "$dst" -- rsync -a "$src" "$dst" 2>>"$LOG" && { n=$((n+1)); _rows_done; } || _rows_fail; fi
+    _i=$(( _i + 1 ))
+  done
+  ROW_CUR=-1
   logln "[mirror] done ($n mirrored)"
 }
 
@@ -241,8 +378,9 @@ _latest_version() { curl -fsSL --max-time 6 "https://api.github.com/repos/$REPO/
 _ver_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)" = "$1" ]; }
 _do_update() {
   local v="$1" tmp; tmp="$(mktemp)"
-  curl -fsSL --max-time 30 "https://github.com/$REPO/releases/download/v$v/limpet" -o "$tmp" 2>/dev/null \
-    || curl -fsSL --max-time 30 "https://raw.githubusercontent.com/$REPO/v$v/limpet" -o "$tmp" 2>/dev/null || return 1
+  spin "downloading v$v" -- bash -c '
+    curl -fsSL --max-time 30 "https://github.com/'"$REPO"'/releases/download/v'"$v"'/limpet" -o "'"$tmp"'" 2>/dev/null \
+      || curl -fsSL --max-time 30 "https://raw.githubusercontent.com/'"$REPO"'/v'"$v"'/limpet" -o "'"$tmp"'" 2>/dev/null' || return 1
   /bin/bash -n "$tmp" || return 1
   chmod +x "$tmp"
   if [ -w "$SELF" ]; then mv "$tmp" "$SELF"; else sudo mv "$tmp" "$SELF" 2>/dev/null || mv "$tmp" "$SELF"; fi
@@ -351,10 +489,24 @@ cmd_setup() {
   # 4) do it
   hr
   local f
-  for f in "${FOLDERS[@]}"; do
-    info "linking ${B}$f${R} → $DRIVE/$f"
-    move_to_drive "$HOME/$f" "$DRIVE/$f" && ok "$f is now on the drive" || err "$f failed (left intact)"
-  done
+  if _ui_animated; then
+    title "Moving your folders onto ${B}$DRIVE${R} …"
+    _rows_begin 1
+    for f in "${FOLDERS[@]}"; do _rows_add "$f" "$(_du_kb "$HOME/$f")"; done
+    _rows_paint
+    local _i=0
+    for f in "${FOLDERS[@]}"; do
+      ROW_CUR=$_i
+      move_to_drive "$HOME/$f" "$DRIVE/$f" "$f" || true
+      _i=$(( _i + 1 ))
+    done
+    ROW_CUR=-1
+  else
+    for f in "${FOLDERS[@]}"; do
+      info "linking ${B}$f${R} → $DRIVE/$f"
+      move_to_drive "$HOME/$f" "$DRIVE/$f" "$f" && ok "$f is now on the drive" || err "$f failed (left intact)"
+    done
+  fi
   save_config
   [ "$DRY_RUN" = 1 ] || { install_agent; install_hook; }
   hr
@@ -393,6 +545,34 @@ cmd_status() {
   done
 }
 
+cmd_watch() {
+  require_config
+  if ! _ui_animated; then cmd_status; return 0; fi
+  local H=$(( ${#FOLDERS[@]} + 4 )) first=1 f t present
+  tput civis 2>/dev/null
+  trap 'tput cnorm 2>/dev/null; printf "\n"; exit 0' INT TERM
+  while :; do
+    present=0; drive_present && present=1
+    [ "$first" = 1 ] && first=0 || tput cuu "$H"
+    # header
+    printf '\r'; tput el
+    if [ "$present" = 1 ]; then printf '  %s●%s %sX9%s   %sconnected%s   %s%s%s\n' "$CYN" "$R" "$B" "$R" "$CYN" "$R" "$DIM" "$DRIVE" "$R"
+    else printf '  %s●%s %sX9%s   %sUNPLUGGED%s   %swas %s%s\n' "$YEL" "$R" "$B" "$R" "$YEL" "$R" "$DIM" "$DRIVE" "$R"; fi
+    printf '\r'; tput el; printf '  %sguard%s   %s\n' "$DIM" "$R" "$(launchctl list 2>/dev/null | grep -q "$LABEL" && printf '%sloaded%s' "$GRN" "$R" || printf '%snot loaded%s' "$RED" "$R")"
+    printf '\r'; tput el; printf '\n'
+    for f in "${FOLDERS[@]}"; do
+      printf '\r'; tput el
+      if [ -L "$HOME/$f" ]; then t="$(readlink "$HOME/$f")"
+        if [ -e "$HOME/$f" ]; then printf '  %s✓%s %-12s %s→ %s%s\n' "$GRN" "$R" "~/$f" "$DIM" "$t" "$R"
+        else printf '  %s✗%s %-12s %s→ %s (broken — drive unplugged)%s\n' "$YEL" "$R" "~/$f" "$DIM" "$t" "$R"; fi
+      elif [ -d "$HOME/$f" ]; then printf '  %s•%s %-12s %slocal — failover mode%s\n' "$BLU" "$R" "~/$f" "$DIM" "$R"
+      else printf '  %s?%s %-12s %smissing%s\n' "$YEL" "$R" "~/$f" "$DIM" "$R"; fi
+    done
+    printf '\r'; tput el; printf '  %spress Ctrl-C to quit · redraws on plug / unplug%s\n' "$DIM" "$R"
+    sleep 0.5
+  done
+}
+
 cmd_doctor() {
   require_config
   title "limpet doctor"
@@ -419,7 +599,7 @@ cmd_link() { # limpet link <path>   (move any extra file/folder onto the drive +
   local dst="$DRIVE/$(basename "$abs")"
   [ -e "$dst" ] && die "destination exists: $dst"
   info "moving ${B}$abs${R} → $dst"
-  move_to_drive "$abs" "$dst" && ok "linked." || err "failed."
+  move_to_drive "$abs" "$dst" "$(basename "$abs")" && ok "linked." || err "failed."
 }
 cmd_unlink() { # limpet unlink <path>  (bring a symlinked path back to local disk)
   local p="${1:-}"; [ -n "$p" ] || die "usage: limpet unlink <path>"
@@ -430,7 +610,12 @@ cmd_unlink() { # limpet unlink <path>  (bring a symlinked path back to local dis
   rm -f "$p"; ditto "$tgt" "$p" && ok "restored to local disk: $p" || err "failed"
 }
 
-cmd_sync()   { require_config; with_lock guard run_guard; with_lock mirror run_mirror; ok "synced."; }
+cmd_sync() {
+  require_config
+  spin "failover / failback" -- with_lock guard run_guard
+  with_lock mirror run_mirror
+  ok "synced."
+}
 
 cmd_uninstall() {
   load_config
@@ -455,6 +640,7 @@ ${B}COMMANDS${R}
   ${CYN}setup${R}            Interactive wizard: pick a drive + folders, move them over, install the guard.
                    Flags for automation: --drive <path> --folders a,b,c [--mirror p1,p2] --yes
   ${CYN}status${R}           Show drive + folder state. Add --json for machine output.
+  ${CYN}watch${R}            Live view: drive + folder state, redraws on plug/unplug (Ctrl-C to quit).
   ${CYN}doctor${R}           Health-check and offer fixes.
   ${CYN}sync${R}             Run the failover/failback + mirror right now.
   ${CYN}link${R} <path>      Move any extra file/folder onto the drive and symlink it back.
@@ -487,6 +673,7 @@ main() {
   case "$cmd" in
     setup)        cmd_setup "$@";;
     status)       cmd_status "$@";;
+    watch)        cmd_watch;;
     doctor)       cmd_doctor;;
     sync)         cmd_sync;;
     link)         cmd_link "$@";;
@@ -502,4 +689,4 @@ main() {
     *) err "unknown command: $cmd"; say "run ${B}limpet help${R}"; exit 1;;
   esac
 }
-main "$@"
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then main "$@"; fi
