@@ -46,7 +46,7 @@
   :root{
     --bg:#050505; --ink:#f6f8fb; --mut:rgba(246,248,251,.56); --faint:rgba(246,248,251,.34);
     --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.055);
-    --teal:#2dd4bf; --emer:#34d399; --blue:#60a5fa; --warn:#fbbf24;
+    --teal:#2dd4bf; --emer:#34d399; --blue:#60a5fa; --warn:#fbbf24; --red:#fb7185;
     --card:rgba(255,255,255,.025); --shell:rgba(255,255,255,.03);
     --disp:'Clash Display','Geist',system-ui,sans-serif;
     --sans:'Geist',-apple-system,system-ui,sans-serif;
@@ -210,6 +210,22 @@
   .sh-head h2{grid-column:1;grid-row:2;font-family:var(--disp);font-weight:600;font-size:clamp(32px,4.8vw,58px);line-height:1.03;letter-spacing:-.03em;max-width:15ch}
   .sh-head p{grid-column:2;grid-row:2;color:var(--mut);font-size:clamp(16px,1.9vw,20px);line-height:1.62;max-width:46ch;padding-bottom:8px}
 
+  /* ---------- problem/fix editorial split ---------- */
+  .pfsplit{display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,2.4vw,28px)}
+  .pfsplit .side{border:1px solid var(--line);border-radius:20px;padding:clamp(26px,3.2vw,42px);position:relative;overflow:hidden}
+  .pfsplit .side.problem{background:linear-gradient(180deg,rgba(251,113,133,.06),transparent 72%)}
+  .pfsplit .side.fix{background:linear-gradient(180deg,rgba(45,212,191,.06),transparent 72%)}
+  .pfsplit .lab{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:18px}
+  .pfsplit .lab .dot{width:7px;height:7px;border-radius:50%}
+  .pfsplit .side.problem .lab{color:var(--red)} .pfsplit .side.problem .lab .dot{background:var(--red);box-shadow:0 0 10px var(--red)}
+  .pfsplit .side.fix .lab{color:var(--teal)} .pfsplit .side.fix .lab .dot{background:var(--teal);box-shadow:0 0 10px var(--teal)}
+  .pfsplit h3{font-family:var(--disp);font-weight:600;font-size:clamp(24px,2.9vw,34px);line-height:1.08;letter-spacing:-.025em}
+  .pfsplit p{color:var(--mut);font-size:clamp(15px,1.7vw,18px);line-height:1.6;margin-top:14px;max-width:40ch}
+  .pfsplit .mini{margin-top:26px;display:flex;align-items:center;gap:11px;font-family:var(--mono);font-size:13px;color:var(--faint)}
+  .pfsplit .badline{width:38px;height:2px;border-radius:2px;background:repeating-linear-gradient(90deg,var(--red) 0 3px,transparent 3px 7px)}
+  .pfsplit .okline{width:38px;height:2px;border-radius:2px;background:linear-gradient(90deg,rgba(45,212,191,.3),var(--teal))}
+  .pfsplit .mini .red{color:var(--red)} .pfsplit .mini .teal{color:var(--teal)}
+
   /* ---------- bento ---------- */
   .bento{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-top:54px}
   .cell{padding:7px}
@@ -278,7 +294,7 @@
   @media (max-width:860px){
     .navlinks,.nav-cta{display:none} .burger{display:block}
     .bento{grid-template-columns:1fr;gap:14px} .cell,.feat-big{grid-column:span 1 !important;grid-row:auto !important}
-    .how{grid-template-columns:1fr}
+    .how,.pfsplit{grid-template-columns:1fr}
     .sh-head{display:block}
     .sh-head h2{margin-top:18px;max-width:none} .sh-head p{margin-top:16px;max-width:52ch;padding-bottom:0}
     .wrap{padding-left:20px;padding-right:20px}
@@ -362,17 +378,26 @@
 
 <!-- problem -->
 <section class="wrap" id="problem">
-  <div class="sh-head rv">
-    <span class="eyebrow"><span class="dot" style="background:var(--warn);box-shadow:0 0 10px var(--warn)"></span>The problem</span>
-    <h2>Unplug the drive, and the signpost points to nothing.</h2>
-    <p>Macs ship with small, pricey storage, so you move your files to a cheap external SSD and symlink to it. It's perfect — until the cable slips. Then saves fail, the Desktop empties, and a reboot can quietly split your files across two places. macOS has never had a “work offline, sync later” answer for this.</p>
+  <div class="pfsplit">
+    <div class="side problem rv">
+      <div class="lab"><span class="dot"></span>The problem</div>
+      <h3>Unplug the drive, and the signpost points to nothing.</h3>
+      <p>You move your files to a cheap external SSD and symlink to them — perfect, until the cable slips. Then saves fail, the Desktop empties, and a reboot can quietly split your files across two places.</p>
+      <div class="mini"><span class="badline"></span><span class="red">~/Documents → ✕ nothing</span></div>
+    </div>
+    <div class="side fix rv">
+      <div class="lab"><span class="dot"></span>The fix</div>
+      <h3>limpet fails over to local, then merges back.</h3>
+      <p>The moment it's unplugged, each folder becomes a real local one — so every save keeps working. When the drive returns, your offline edits move back on, and a name clash keeps both.</p>
+      <div class="mini"><span class="okline"></span><span class="teal">~/Documents → local → merged</span></div>
+    </div>
   </div>
 </section>
 
 <!-- features bento -->
 <section class="wrap" id="features">
   <div class="sh-head rv">
-    <span class="eyebrow"><span class="dot"></span>The fix</span>
+    <span class="eyebrow"><span class="dot"></span>Feature by feature</span>
     <h2>Built to be boringly reliable.</h2>
     <p>Offline mode, for your drive. Everything below happens on its own — you never babysit a cable again.</p>
   </div>
