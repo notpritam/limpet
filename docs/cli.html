@@ -1,0 +1,406 @@
+<!doctype html>
+<!-- ABOUTME: Interactive prototype of the limpet v0.2 animated CLI (progress bars, spinners, watch view). -->
+<!-- ABOUTME: Design artifact only — every frame maps to output pure-bash ANSI can produce. Not shipped code. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>limpet · CLI preview</title>
+<meta name="description" content="A first look at limpet v0.2's animated CLI — live progress bars, a watch view that reacts to the drive, spinner checks that resolve to ✓/✗. Pure-bash ANSI, zero dependencies, degrades to plain text off a TTY." />
+<link rel="canonical" href="https://limpet.notpritam.in/cli.html" />
+<meta name="theme-color" content="#050505" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/favicon.svg" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="limpet" />
+<meta property="og:url" content="https://limpet.notpritam.in/cli.html" />
+<meta property="og:title" content="limpet — the CLI, now with motion (v0.2 preview)" />
+<meta property="og:description" content="Live progress bars, a watch view that reacts to the drive, spinner checks that resolve to ✓/✗ — all pure-bash ANSI. A preview of limpet v0.2's animated CLI." />
+<meta property="og:image" content="https://limpet.notpritam.in/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="limpet — animated CLI preview, v0.2" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="limpet — the CLI, now with motion (v0.2 preview)" />
+<meta name="twitter:description" content="Live progress bars, a watch view, spinner checks — pure-bash ANSI, zero dependencies." />
+<meta name="twitter:image" content="https://limpet.notpritam.in/og.png" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#050505; --ink:#f6f8fb; --mut:rgba(246,248,251,.56); --faint:rgba(246,248,251,.34);
+    --line:rgba(246,248,251,.10); --line2:rgba(246,248,251,.07);
+    --teal:#2dd4bf; --emer:#34d399; --blue:#60a5fa; --warn:#fbbf24; --red:#ff5f57;
+    --sans:'Geist',system-ui,-apple-system,sans-serif;
+    --mono:'Geist Mono',ui-monospace,Menlo,monospace;
+    --ease:cubic-bezier(.22,.61,.36,1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;overflow-x:hidden;line-height:1.5;padding:44px 20px 80px;display:flex;flex-direction:column;align-items:center}
+  .orb{position:fixed;border-radius:50%;filter:blur(30px);z-index:-2;pointer-events:none}
+  .orb.a{width:60vw;height:60vw;top:-24vw;right:-14vw;background:radial-gradient(circle,rgba(45,212,191,.22),transparent 65%)}
+  .orb.b{width:48vw;height:48vw;bottom:-20vw;left:-16vw;background:radial-gradient(circle,rgba(96,165,250,.16),transparent 65%)}
+  .grid{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(var(--line2) 1px,transparent 1px),linear-gradient(90deg,var(--line2) 1px,transparent 1px);
+    background-size:64px 64px;mask-image:radial-gradient(circle at 50% 24%,#000,transparent 76%)}
+
+  .backlink{position:fixed;top:22px;left:22px;z-index:11;font-family:var(--mono);font-size:13px;color:var(--teal);opacity:.82;transition:opacity .3s var(--ease)}
+  .backlink:hover{opacity:1}
+  @media(max-width:640px){.backlink{top:14px;left:14px;font-size:12px}}
+
+  header.top{width:100%;max-width:860px;text-align:center;margin-bottom:26px}
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11px;text-transform:uppercase;
+    letter-spacing:.22em;color:var(--teal);border:1px solid rgba(45,212,191,.28);border-radius:100px;padding:6px 13px}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal);animation:pulse 2s var(--ease) infinite}
+  h1{font-family:var(--sans);font-weight:600;font-size:clamp(28px,4vw,44px);letter-spacing:-.03em;line-height:1.05;margin:20px auto 0;max-width:16ch}
+  h1 .grad{background:linear-gradient(120deg,#fff 20%,var(--teal) 62%,var(--emer));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--mut);font-size:clamp(14px,1.7vw,17px);margin:14px auto 0;max-width:52ch;line-height:1.6}
+  .trust{display:flex;justify-content:center;gap:20px;flex-wrap:wrap;margin-top:18px;font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+  .trust b{color:var(--mut);font-weight:500}
+
+  /* tabs */
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:0 0 16px;background:rgba(255,255,255,.03);
+    border:1px solid var(--line2);border-radius:14px;padding:5px}
+  .tab{font-family:var(--mono);font-size:12.5px;color:var(--mut);background:transparent;border:0;border-radius:10px;
+    padding:9px 15px;cursor:pointer;transition:.35s var(--ease);white-space:nowrap}
+  .tab:hover{color:var(--ink)}
+  .tab.on{color:#04110f;background:linear-gradient(180deg,var(--teal),#22b8a5);font-weight:500}
+  .tab .n{opacity:.55;margin-right:7px}
+
+  /* mac terminal window */
+  .macwin{width:100%;max-width:860px;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:linear-gradient(180deg,rgba(11,13,15,.96),rgba(7,9,10,.98));
+    box-shadow:0 40px 120px -30px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.02) inset;position:relative}
+  .bar{height:42px;display:flex;align-items:center;padding:0 15px;position:relative;
+    background:linear-gradient(180deg,rgba(40,42,47,.92),rgba(28,30,35,.94));border-bottom:1px solid rgba(0,0,0,.4)}
+  .lights{display:flex;gap:8px}
+  .light{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.22)}
+  .light.r{background:#ff5f57}.light.y{background:#febc2e}.light.g{background:#28c840}
+  .ttl{position:absolute;left:0;right:0;text-align:center;font-family:var(--sans);font-size:12.5px;color:rgba(246,248,251,.42);pointer-events:none}
+  .scan{position:absolute;left:0;right:0;top:42px;height:2px;overflow:hidden;pointer-events:none;z-index:3;opacity:.7}
+  .scan i{display:block;height:100%;width:36%;background:linear-gradient(90deg,transparent,rgba(45,212,191,.8),transparent);animation:scan 4.4s var(--ease) infinite}
+
+  #screen{font-family:var(--mono);font-size:13.5px;line-height:1.72;padding:20px 22px;min-height:430px;
+    white-space:pre;overflow:hidden;letter-spacing:.2px;tab-size:2}
+  @media(max-width:640px){#screen{font-size:11.5px;padding:14px}}
+  .ln{display:block;min-height:1.72em}
+  /* palette */
+  .t{color:var(--teal)}.e{color:var(--emer)}.b{color:var(--blue)}.w{color:var(--warn)}.r{color:var(--red)}
+  .ink{color:var(--ink)}.mut{color:var(--mut)}.faint{color:var(--faint)}
+  .bold{font-weight:500}
+  .fill{color:var(--teal)}.filld{color:var(--emer)}.empty{color:rgba(246,248,251,.16)}
+  .cur{display:inline-block;width:8px;height:1.05em;vertical-align:-2px;background:var(--teal);animation:blink 1.05s steps(1) infinite}
+  .pdot{display:inline-block}
+  @keyframes blink{50%{opacity:0}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes scan{0%{transform:translateX(-40%)}100%{transform:translateX(320%)}}
+
+  .foot{width:100%;max-width:860px;margin-top:20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+  .legend{font-family:var(--mono);font-size:11.5px;color:var(--faint);display:flex;gap:16px;flex-wrap:wrap}
+  .legend b{font-weight:400}
+  .ctrl{display:flex;gap:8px;align-items:center}
+  .btn{font-family:var(--mono);font-size:12px;color:var(--mut);background:rgba(255,255,255,.04);border:1px solid var(--line);
+    border-radius:10px;padding:8px 13px;cursor:pointer;transition:.3s var(--ease)}
+  .btn:hover{color:var(--ink);border-color:var(--line)}
+  .note{width:100%;max-width:860px;margin-top:22px;font-family:var(--mono);font-size:12px;color:var(--faint);
+    line-height:1.7;border-top:1px solid var(--line2);padding-top:16px}
+  .note b{color:var(--mut);font-weight:400}
+  .note code{color:var(--teal)}
+  .pagefoot{width:100%;max-width:860px;margin-top:24px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .pagefoot a{color:var(--mut);border-bottom:1px solid var(--line)}
+  .pagefoot a:hover{color:var(--teal);border-color:var(--teal)}
+  .pagefoot .dv{margin:0 10px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="orb a"></div><div class="orb b"></div><div class="grid"></div>
+<a class="backlink" href="/">← limpet</a>
+
+<header class="top">
+  <span class="eyebrow"><span class="dot"></span>limpet · v0.2 preview</span>
+  <h1>The CLI, now with <span class="grad">motion</span>.</h1>
+  <p class="sub">Real progress while your gigabytes move. A live <b>watch</b> view that reacts to the cable. Spinner-checks that resolve to ✓/✗. All pure-bash ANSI — zero dependencies.</p>
+  <div class="trust"><span>◍ <b>pure bash</b></span><span>◍ <b>0 deps</b></span><span>◍ <b>ANSI only</b></span><span>◍ <b>degrades to plain text off-TTY</b></span></div>
+</header>
+
+<div class="tabs" id="tabs">
+  <button class="tab on" data-scene="setup"><span class="n">01</span>setup</button>
+  <button class="tab" data-scene="watch"><span class="n">02</span>watch</button>
+  <button class="tab" data-scene="doctor"><span class="n">03</span>doctor</button>
+  <button class="tab" data-scene="sync"><span class="n">04</span>sync · mirror</button>
+</div>
+
+<div class="macwin">
+  <div class="bar">
+    <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+    <div class="ttl" id="wtitle">notpritam — limpet — zsh — 92×26</div>
+  </div>
+  <div class="scan"><i></i></div>
+  <div id="screen"></div>
+</div>
+
+<div class="foot">
+  <div class="legend">
+    <span class="t">■</span><b>active / connected</b>
+    <span class="e">■</span><b>done / merged</b>
+    <span class="b">■</span><b>local failover</b>
+    <span class="w">■</span><b>unplugged / warn</b>
+    <span class="r">■</span><b>error</b>
+  </div>
+  <div class="ctrl">
+    <button class="btn" id="replay">↻ replay scene</button>
+    <button class="btn" id="auto">❙❙ autoplay: on</button>
+  </div>
+</div>
+
+<div class="note">
+  <b>How to read this:</b> this is a faithful mock of limpet's next release. The <code>████░░</code> bars fill from a real byte count
+  (limpet pre-measures with <code>du</code>, then polls the destination while <code>ditto</code>/<code>rsync</code> copies — openrsync has no
+  <code>--info=progress2</code>, so one <code>du</code>-poll engine drives every bar). Braille spinners, the <code>watch</code> redraw, and the
+  ✓/✗ checks are all cursor moves (<code>tput cuu/el</code>) + ANSI color. <b>Off a TTY</b> (the launchd guard, the shell hook, <code>| pipe</code>,
+  <code>NO_COLOR</code>) every animation collapses to the same quiet one-line-per-step output limpet prints today.
+</div>
+
+<footer class="pagefoot">
+  <a href="/">Home</a><span class="dv">·</span><a href="/launch.html">Launch video</a><span class="dv">·</span><a href="/explainer.html">Explainer</a>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var screen = document.getElementById('screen');
+  var W = 22;                       // progress bar width in cells
+  var BLK = ['','▏','▎','▍','▌','▋','▊','▉'];   // sub-cell eighths for smooth fill
+  var SPIN = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+  var frame = 0, runId = 0, autoplay = true;
+
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function span(cls,txt){ return '<span class="'+cls+'">'+esc(txt)+'</span>'; }
+  function pad(s,n){ s=String(s); while(s.length<n) s+=' '; return s; }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+  function ck(id){ if(id!==runId) throw 'cancel'; }
+  function spinGlyph(){ return SPIN[frame % SPIN.length]; }
+
+  // ---- screen model: array of line objects rendered every tick ----
+  var lines = [];
+  function raw(html){ var o={t:'raw',html:html}; lines.push(o); return o; }
+  function blank(){ return raw(''); }
+
+  // progress row: label + bar + pct + size, driven by .pct (0..100)
+  function barRow(cfg){
+    var o = {t:'bar', label:cfg.label, pct:0, total:cfg.total, unit:cfg.unit, state:'queued'};
+    lines.push(o); return o;
+  }
+  function fmtSize(o){
+    if(o.state==='queued') return span('faint','queued');
+    var cur = o.pct/100*o.total;
+    if(o.unit==='GB') return (o.state==='done'? o.total.toFixed(1) : cur.toFixed(1)+' / '+o.total.toFixed(1))+' GB';
+    return (o.state==='done'? Math.round(o.total) : Math.round(cur)+' / '+Math.round(o.total))+' MB';
+  }
+  function renderBar(o){
+    var glyph, gcls;
+    if(o.state==='queued'){ glyph='○'; gcls='faint'; }
+    else if(o.state==='done'){ glyph='✓'; gcls='e'; }
+    else { glyph=spinGlyph(); gcls='t'; }
+    // build bar with sub-cell partial
+    var span_ = o.pct/100*W;
+    var full = Math.floor(span_);
+    var partial = Math.round((span_-full)*8);
+    var doneCls = o.state==='done' ? 'filld' : 'fill';
+    var barStr = '';
+    if(full>0) barStr += '<span class="'+doneCls+'">'+'█'.repeat(full)+'</span>';
+    if(partial>0 && full<W) barStr += '<span class="'+doneCls+'">'+BLK[partial]+'</span>';
+    var restCount = W - full - (partial>0 && full<W ? 1 : 0);
+    if(restCount>0) barStr += '<span class="empty">'+'░'.repeat(restCount)+'</span>';
+    var pctStr = pad(Math.round(o.pct)+'%',4);
+    var pctCls = o.state==='done' ? 'e' : (o.state==='queued'?'faint':'t');
+    return '  '+span(gcls,glyph)+' '+span(o.state==='queued'?'faint':'ink',pad(o.label,12))+' '
+         + barStr+'  '+span(pctCls,pctStr)+'   '+span('mut',fmtSize(o));
+  }
+
+  function render(){
+    var html='';
+    for(var i=0;i<lines.length;i++){
+      var o=lines[i];
+      html += '<span class="ln">'+(o.t==='bar'?renderBar(o):(o.html||''))+'</span>';
+    }
+    screen.innerHTML = html;
+  }
+  // continuous ticker: animates spinners + repaints while scenes await sleeps
+  setInterval(function(){ frame++; render(); }, 90);
+
+  // ---- primitives used by scenes ----
+  async function type(id, prefix, cmd){
+    var o = raw(prefix); var shown='';
+    for(var i=0;i<cmd.length;i++){ ck(id); shown+=cmd[i]; o.html = prefix+esc(shown)+'<span class="cur"></span>'; await sleep(26); }
+    ck(id); o.html = prefix+esc(shown);
+  }
+  async function fillTo(id, o, target, ms){
+    var start=o.pct, steps=Math.max(1,Math.round(ms/45));
+    for(var i=1;i<=steps;i++){ ck(id); o.pct = start+(target-start)*i/steps; await sleep(45); }
+    ck(id); o.pct=target;
+  }
+  // a spinner line that resolves to a final state
+  async function check(id, label, ms, result){
+    var o = raw('  '+span('t','⠋')+' '+span('mut',label+' …'));
+    var t0=0;
+    while(t0<ms){ ck(id); o.html='  '+span('t',spinGlyph())+' '+span('mut',label+' …'); await sleep(70); t0+=70; }
+    ck(id); o.html = result;
+  }
+
+  // ============================ SCENES ============================
+  async function sceneSetup(id){
+    lines=[];
+    await type(id, span('faint','$ '), 'limpet setup --drive /Volumes/X9 --folders Desktop,Documents,Downloads --yes');
+    blank();
+    raw('  '+span('t','▸')+' '+span('ink','Moving your folders onto ')+span('bold','/Volumes/X9')+span('ink',' …'));
+    blank();
+    var d = barRow({label:'Desktop',   total:240, unit:'MB'});
+    var o = barRow({label:'Documents', total:1.8, unit:'GB'});
+    var w = barRow({label:'Downloads', total:320, unit:'MB'});
+    blank();
+    var agg = raw('');
+    function updAgg(){
+      var done=0,total=0,rows=[d,o,w];
+      for(var k=0;k<rows.length;k++){ var g=rows[k].unit==='GB'?rows[k].total:rows[k].total/1024; total+=g; done+=g*rows[k].pct/100; }
+      agg.html='  '+span('t','▸')+' '+span('mut',done.toFixed(1)+' GB of '+total.toFixed(1)+' GB · verified byte-for-byte before removal');
+    }
+    updAgg();
+    // copy each folder in turn; keep the aggregate ticking
+    var rows=[d,o,w], times=[1400,3200,1500];
+    for(var k=0;k<rows.length;k++){
+      ck(id); rows[k].state='copy';
+      var start=performance?0:0;
+      // fill while updating aggregate
+      var steps=Math.max(1,Math.round(times[k]/45));
+      for(var i=1;i<=steps;i++){ ck(id); rows[k].pct=100*i/steps; updAgg(); await sleep(45); }
+      rows[k].pct=100; rows[k].state='done'; updAgg(); await sleep(160);
+    }
+    ck(id);
+    blank();
+    raw('  '+span('e bold','✓ Setup complete.'));
+    raw('    '+span('mut','• Background guard: ')+span('e','active')+span('mut','  (reacts to plug / unplug instantly)'));
+    raw('    '+span('mut','• Terminal hook: added — open a new terminal to activate'));
+    raw('    '+span('mut','• Check anytime with ')+span('t','limpet status')+span('mut',', or ')+span('t','limpet doctor'));
+    raw(''); raw('  '+span('faint','$ ')+'<span class="cur"></span>');
+    await sleep(2600);
+  }
+
+  async function sceneWatch(id){
+    lines=[];
+    await type(id, span('faint','$ '), 'limpet watch');
+    blank();
+    var drv = raw('');
+    var g   = raw('  '+span('mut','guard   ')+span('e','loaded'));
+    blank();
+    var f = [
+      raw(''), raw(''), raw('')
+    ];
+    var names=['Desktop','Documents','Downloads'];
+    function connected(){
+      drv.html='  '+span('t','●')+' '+span('bold','X9')+'   '+span('t','connected')+span('faint','   /Volumes/X9');
+      for(var i=0;i<3;i++) f[i].html='  '+span('e','✓')+' '+span('ink',pad('~/'+names[i],13))+span('faint','→ /Volumes/X9/'+names[i]);
+    }
+    function failover(){
+      for(var i=0;i<3;i++) f[i].html='  '+span('b','•')+' '+span('ink',pad('~/'+names[i],13))+span('b','local')+span('faint',' — failover mode');
+    }
+    var help = null;
+    connected();
+    help = raw('  '+span('faint','press q to quit · redraws on plug / unplug'));
+    await sleep(1700); ck(id);
+
+    // --- unplug ---
+    help.html='  '+span('w','!')+' '+span('w','drive unplugged')+span('mut',' — failing over…');
+    drv.html='  '+span('w','●')+' '+span('bold','X9')+'   '+span('w','UNPLUGGED')+span('faint','   was /Volumes/X9');
+    for(var i=0;i<3;i++){ ck(id); f[i].html='  '+span('b','•')+' '+span('ink',pad('~/'+names[i],13))+span('b','local')+span('faint',' — failover mode'); await sleep(280); }
+    await sleep(1500); ck(id);
+
+    // --- replug + merge ---
+    help.html='  '+span('b','▸')+' '+span('b','drive back')+span('mut',' — merging offline work…');
+    for(var i=0;i<3;i++){
+      ck(id);
+      // brief spinner on the row being merged
+      var t0=0; while(t0<420){ ck(id); f[i].html='  '+span('t',spinGlyph())+' '+span('ink',pad('~/'+names[i],13))+span('mut','merging…'); await sleep(70); t0+=70; }
+      f[i].html='  '+span('e','✓')+' '+span('ink',pad('~/'+names[i],13))+span('faint','→ /Volumes/X9/'+names[i]);
+    }
+    drv.html='  '+span('t','●')+' '+span('bold','X9')+'   '+span('t','connected')+span('faint','   /Volumes/X9');
+    help.html='  '+span('e','✓')+' '+span('mut','merged 2 files · kept both on 1 name clash · never overwrote');
+    await sleep(2600);
+  }
+
+  async function sceneDoctor(id){
+    lines=[];
+    await type(id, span('faint','$ '), 'limpet doctor');
+    blank();
+    raw('  '+span('bold','limpet doctor'));
+    blank();
+    await check(id,'checking drive',700, '  '+span('e','✓')+' '+span('ink','drive mounted: ')+span('mut','/Volumes/X9'));
+    await check(id,'checking guard agent',760, '  '+span('e','✓')+' '+span('ink','guard agent loaded'));
+    await check(id,'checking cli',600, '  '+span('e','✓')+' '+span('ink','cli present: ')+span('mut','/usr/local/bin/limpet'));
+    await check(id,'checking drive-name drift',820, '  '+span('e','✓')+' '+span('ink','no drift — drive is exactly “X9”'));
+    blank();
+    raw('  '+span('e bold','✓ all good.'));
+    raw(''); raw('  '+span('faint','$ ')+'<span class="cur"></span>');
+    await sleep(2600);
+  }
+
+  async function sceneSync(id){
+    lines=[];
+    await type(id, span('faint','$ '), 'limpet sync');
+    blank();
+    await check(id,'failover / failback',780, '  '+span('e','✓')+' '+span('ink','folders in sync'));
+    blank();
+    raw('  '+span('b','▸')+' '+span('ink','mirroring critical paths → ')+span('mut','~/.limpet/mirror'));
+    blank();
+    var a = barRow({label:'Projects/limpet', total:180, unit:'MB'});
+    var b = barRow({label:'Documents/Taxes', total:1.1, unit:'GB'});
+    blank();
+    var rows=[a,b], times=[1200,2200];
+    for(var k=0;k<rows.length;k++){
+      ck(id); rows[k].state='copy';
+      var steps=Math.max(1,Math.round(times[k]/45));
+      for(var i=1;i<=steps;i++){ ck(id); rows[k].pct=100*i/steps; await sleep(45); }
+      rows[k].pct=100; rows[k].state='done'; await sleep(150);
+    }
+    ck(id); blank();
+    raw('  '+span('e bold','✓ synced.')+' '+span('mut','(2 mirrored)'));
+    raw(''); raw('  '+span('faint','$ ')+'<span class="cur"></span>');
+    await sleep(2600);
+  }
+
+  var SCENES = {setup:sceneSetup, watch:sceneWatch, doctor:sceneDoctor, sync:sceneSync};
+  var ORDER = ['setup','watch','doctor','sync'];
+  var current = 'setup';
+
+  function setTab(name){
+    current=name;
+    var tabs=document.querySelectorAll('.tab');
+    tabs.forEach(function(t){ t.classList.toggle('on', t.getAttribute('data-scene')===name); });
+  }
+
+  async function play(name){
+    setTab(name);
+    var id = ++runId;
+    try{ await SCENES[name](id); }
+    catch(e){ if(e!=='cancel') { /* swallow */ } return; }
+    if(autoplay && id===runId){
+      var next = ORDER[(ORDER.indexOf(name)+1)%ORDER.length];
+      play(next);
+    }
+  }
+
+  document.getElementById('tabs').addEventListener('click', function(e){
+    var b = e.target.closest('.tab'); if(!b) return;
+    play(b.getAttribute('data-scene'));
+  });
+  document.getElementById('replay').addEventListener('click', function(){ play(current); });
+  document.getElementById('auto').addEventListener('click', function(){
+    autoplay=!autoplay; this.textContent = autoplay ? '❙❙ autoplay: on' : '▶ autoplay: off';
+    if(autoplay) play(current);
+  });
+
+  play('setup');
+})();
+</script>
+</body>
+</html>

@@ -13,6 +13,12 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://limpet.notpritam.in/cli.html</loc>
+    <lastmod>2026-07-01</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://limpet.notpritam.in/explainer.html</loc>
     <lastmod>2026-06-30</lastmod>
     <changefreq>monthly</changefreq>

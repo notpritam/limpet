@@ -29,7 +29,7 @@
 <meta name="twitter:image" content="https://limpet.notpritam.in/og.png" />
 <script type="application/ld+json">
 {"@context":"https://schema.org","@graph":[
-{"@type":"SoftwareApplication","name":"limpet","applicationCategory":"DeveloperApplication","operatingSystem":"macOS","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Run your Mac off an external SSD as primary storage, with automatic local failover when the drive is unplugged and conflict-safe merge-back when it returns.","url":"https://limpet.notpritam.in/","downloadUrl":"https://github.com/notpritam/limpet","softwareVersion":"0.1.0","license":"https://opensource.org/licenses/MIT","author":{"@type":"Person","name":"Pritam Sharma","url":"https://www.notpritam.in/"},"keywords":"macOS, external drive, primary storage, symlink, failover, offline files"},
+{"@type":"SoftwareApplication","name":"limpet","applicationCategory":"DeveloperApplication","operatingSystem":"macOS","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Run your Mac off an external SSD as primary storage, with automatic local failover when the drive is unplugged and conflict-safe merge-back when it returns.","url":"https://limpet.notpritam.in/","downloadUrl":"https://github.com/notpritam/limpet","softwareVersion":"0.2.0","license":"https://opensource.org/licenses/MIT","author":{"@type":"Person","name":"Pritam Sharma","url":"https://www.notpritam.in/"},"keywords":"macOS, external drive, primary storage, symlink, failover, offline files"},
 {"@type":"FAQPage","mainEntity":[
 {"@type":"Question","name":"Can I use an external drive as primary storage on macOS?","acceptedAnswer":{"@type":"Answer","text":"Yes. limpet moves the home folders you pick (Documents, Downloads, Desktop, project folders) onto an external SSD and symlinks to them, so the external drive is your primary storage and the internal disk stays nearly empty."}},
 {"@type":"Question","name":"What happens when I unplug the external drive?","acceptedAnswer":{"@type":"Answer","text":"A background guard detects the unplug within about a second and turns the affected folders back into real local folders, so saving keeps working with no errors. When the drive returns, limpet merges your offline work back onto it and never overwrites — a name clash keeps both copies."}},
@@ -348,6 +348,7 @@
   <div class="trust rv">
     <span><b>~300</b> lines of bash</span><span><b>0</b> dependencies</span><span><b>11/11</b> e2e tests</span><span><b>no</b> kext · daemon · network</span>
   </div>
+  <a href="/cli.html" class="quip rv">▶ <span>See the new v0.2 CLI in motion</span></a>
 
   <div class="term-wrap rv">
     <div class="macwin" id="macwin" data-state="connected">
