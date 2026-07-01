@@ -1,0 +1,49 @@
+# limpet
+
+> A single-file, pure-bash macOS CLI that lets you run your Mac off an external SSD as **primary storage** — and keeps working the instant the drive is unplugged. It fails over to a real local folder within a second, then merges your offline work back onto the drive when it returns, never overwriting on a clash.
+
+limpet exists because Macs ship with small, expensive internal storage. Many people move Documents, Downloads, Desktop, and project folders onto a cheap external SSD and symlink to it — which breaks the moment the drive is unplugged (saves fail, folders look empty, reboots split files across two places). macOS has no built-in "work offline, sync when it's back" mechanism for external volumes (the way Windows has Offline Files). limpet is that missing mechanism.
+
+## How it works
+- **Connected:** your folders are symlinks straight to the drive — zero overhead, full speed.
+- **Unplugged:** a launchd guard (WatchPaths /Volumes) turns each symlink back into a real local folder within a second, so every save keeps working.
+- **Reconnected:** a throttled terminal-shell hook copies whatever you made offline back onto the drive, keeping BOTH copies on any name clash (`name.local-<timestamp>`) — it never overwrites.
+
+The split exists because macOS security (TCC) blocks background/launchd processes from writing to external volumes; the guard only does local symlink swaps (no Full Disk Access needed), and the terminal hook does the merge-back that must touch the drive.
+
+## Safety
+- Verified copy before delete: `ditto` copy, then a byte-level shasum manifest is verified before the original is removed. If verification fails, the original is left untouched.
+- Never overwrites on merge (keep-both, timestamped).
+- No kernel extensions, no daemons, no network (except an optional daily update check). ~300 lines of readable bash.
+- Not a backup — it keeps data available and unplug-resilient; keep Time Machine too.
+
+## Install
+```
+curl -fsSL https://raw.githubusercontent.com/notpritam/limpet/main/install.sh | bash
+limpet setup      # interactive: pick a drive + folders
+limpet status
+```
+
+## Key commands
+- `limpet setup` — interactive wizard (also scriptable: `--drive`, `--folders`, `--yes`).
+- `limpet status [--json]` — drive + folder state.
+- `limpet link <path>` / `limpet unlink <path>` — move any extra file/folder onto the drive and back.
+- `limpet list` — managed folders + ad-hoc links.
+- `limpet doctor` — health-check and offer fixes.
+- `limpet sync` — run failover/failback + mirror now.
+- `limpet update [--check]` — self-update from GitHub Releases (syntax-checked before replacing the binary).
+- `limpet uninstall` — remove guard + hook, optionally restore folders locally.
+
+## Facts
+- Platform: macOS only (relies on launchd, ditto, APFS).
+- Language: pure bash, POSIX/bash-3.2 safe, single file.
+- License: MIT © Pritam Sharma.
+- Author: Pritam Sharma (https://www.notpritam.in/).
+- Made as a personal project and published so others with the same "big Mac, small disk, cheap external SSD" setup can use it.
+
+## Links
+- [Project site](https://limpet.notpritam.in/): landing page with the full explanation.
+- [GitHub repo](https://github.com/notpritam/limpet): source, README, install script, tests.
+- [Launch video](https://limpet.notpritam.in/launch.html): 35-second animated walkthrough.
+- [Explainer deck](https://limpet.notpritam.in/explainer.html): slide-by-slide problem → solution.
+- [Author](https://www.notpritam.in/): Pritam Sharma. Blog at https://blog.notpritam.in/.

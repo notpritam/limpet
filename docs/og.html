@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<!-- ABOUTME: Source for the 1200x630 Open Graph / social share card — screenshotted to og.png. -->
+<!-- ABOUTME: Not linked in nav; render at exactly 1200x630 and export as docs/og.png. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#050505; --ink:#f6f8fb; --mut:rgba(246,248,251,.58); --faint:rgba(246,248,251,.36);
+    --line:rgba(255,255,255,.09); --teal:#2dd4bf; --emer:#34d399; --blue:#60a5fa; --warn:#fbbf24;
+    --disp:'Clash Display','Geist',system-ui,sans-serif;
+    --sans:'Geist',-apple-system,system-ui,sans-serif;
+    --mono:'Geist Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1200px;height:630px;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+  .card{position:relative;width:1200px;height:630px;overflow:hidden;-webkit-font-smoothing:antialiased}
+  .orb{position:absolute;border-radius:50%;filter:blur(80px)}
+  .orb.a{width:620px;height:620px;top:-230px;right:-150px;background:radial-gradient(circle,rgba(45,212,191,.42),transparent 66%)}
+  .orb.b{width:520px;height:520px;bottom:-230px;left:-160px;background:radial-gradient(circle,rgba(96,165,250,.30),transparent 66%)}
+  .orb.c{width:360px;height:360px;top:180px;left:520px;background:radial-gradient(circle,rgba(52,211,153,.16),transparent 66%)}
+  .hair{position:absolute;inset:0;background:
+     linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px) 0 0/64px 64px,
+     linear-gradient(0deg,rgba(255,255,255,.04) 1px,transparent 1px) 0 0/64px 64px;
+     -webkit-mask-image:radial-gradient(circle at 30% 40%,#000,transparent 78%);mask-image:radial-gradient(circle at 30% 40%,#000,transparent 78%);opacity:.6}
+  .frame{position:absolute;inset:22px;border:1px solid rgba(255,255,255,.08);border-radius:26px}
+  .in{position:absolute;inset:0;display:flex;padding:64px 70px}
+  .left{flex:1;display:flex;flex-direction:column;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:14px}
+  .mark{width:52px;height:52px}
+  .wm{font-family:var(--disp);font-weight:600;font-size:30px;letter-spacing:-.01em}
+  .tag{font-family:var(--mono);font-size:14px;color:var(--teal);text-transform:uppercase;letter-spacing:.24em;margin-left:6px}
+  h1{font-family:var(--disp);font-weight:600;font-size:66px;line-height:1.02;letter-spacing:-.022em;max-width:15ch}
+  h1 span{background:linear-gradient(120deg,var(--teal),var(--emer) 60%,var(--blue));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .sub{font-size:23px;line-height:1.5;color:var(--mut);max-width:30ch;margin-top:22px}
+  .foot{display:flex;align-items:center;gap:18px;font-family:var(--mono);font-size:16px;color:var(--faint)}
+  .foot b{color:var(--ink);font-weight:500}
+  .foot .sep{width:5px;height:5px;border-radius:50%;background:var(--faint)}
+  .right{width:352px;display:flex;flex-direction:column;justify-content:center;gap:16px;padding-left:20px}
+  .chip{display:flex;align-items:center;gap:15px;padding:18px 20px;border-radius:16px;
+     background:rgba(255,255,255,.028);border:1px solid rgba(255,255,255,.08)}
+  .dot{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 14px currentColor}
+  .chip .txt{display:flex;flex-direction:column;gap:3px}
+  .chip .k{font-family:var(--mono);font-size:13px;letter-spacing:.04em;color:var(--faint);text-transform:uppercase}
+  .chip .v{font-family:var(--disp);font-weight:500;font-size:19px;color:var(--ink)}
+  .t{color:var(--teal)} .w{color:var(--warn)} .e{color:var(--emer)}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="orb a"></div><div class="orb b"></div><div class="orb c"></div>
+    <div class="hair"></div>
+    <div class="frame"></div>
+    <div class="in">
+      <div class="left">
+        <div class="brand">
+          <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M11 45 C 13 26 22 17 32 17 C 42 17 51 26 53 45 Z" fill="#2dd4bf" fill-opacity="0.14"/>
+            <g fill="none" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 45 C 13 26 22 17 32 17 C 42 17 51 26 53 45 Z"/>
+              <path d="M32 17 V 45"/><path d="M24.6 18.7 L 20.5 45"/><path d="M39.4 18.7 L 43.5 45"/>
+            </g>
+          </svg>
+          <span class="wm">limpet</span>
+          <span class="tag">macOS</span>
+        </div>
+        <div>
+          <h1>Your external drive, <span>finally unbreakable.</span></h1>
+          <p class="sub">Run your Mac off an external SSD — and keep working the second you unplug.</p>
+        </div>
+        <div class="foot">
+          <b>limpet.notpritam.in</b><span class="sep"></span>open source<span class="sep"></span>MIT<span class="sep"></span>~300 lines of bash
+        </div>
+      </div>
+      <div class="right">
+        <div class="chip"><span class="dot t"></span><span class="txt"><span class="k">Connected</span><span class="v">Working off the SSD</span></span></div>
+        <div class="chip"><span class="dot w"></span><span class="txt"><span class="k">Unplugged</span><span class="v">Fails over to local</span></span></div>
+        <div class="chip"><span class="dot e"></span><span class="txt"><span class="k">Reconnected</span><span class="v">Merged back, safe</span></span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

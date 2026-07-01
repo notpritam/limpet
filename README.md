@@ -1,11 +1,25 @@
 <!-- ABOUTME: Public README for limpet — the what/why/how, install, and command reference. -->
 <!-- ABOUTME: Audience-facing and generic; per-machine specifics live in the user's own config. -->
 
+<div align="center">
+
 # 🐚 limpet
 
-**Use an external drive as your primary storage on macOS — without it breaking when you unplug.**
+### Run your Mac off an external SSD as primary storage — without it breaking when you unplug.
 
-**▶ [Launch video](https://notpritam.github.io/limpet/launch.html) · [Explainer deck](https://notpritam.github.io/limpet/explainer.html) · [Project site](https://notpritam.github.io/limpet/)**
+<p>
+  <a href="https://limpet.notpritam.in/"><img alt="Website" src="https://img.shields.io/badge/site-limpet.notpritam.in-2dd4bf?style=flat-square"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-f6f8fb?style=flat-square">
+  <img alt="Language" src="https://img.shields.io/badge/pure-bash-34d399?style=flat-square">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-60a5fa?style=flat-square"></a>
+  <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-fbbf24?style=flat-square">
+</p>
+
+**▶ [Website](https://limpet.notpritam.in/) · [Launch video](https://limpet.notpritam.in/launch.html) · [Explainer deck](https://limpet.notpritam.in/explainer.html)**
+
+</div>
+
+> **Rich enough for the Mac, not rich enough for the 2 TB upgrade?** Same. So I put my `Documents`, `Downloads`, `Desktop` and projects on a cheap external SSD — and got tired of everything breaking every time the cable slipped. limpet is the fix.
 
 A limpet is the little mollusk that clamps tight to its rock, yet detaches and re-attaches cleanly with the tide. That's the idea: your folders cling to the external drive, but they survive every unplug and re-attach themselves when the drive comes back.
 
@@ -15,13 +29,13 @@ A limpet is the little mollusk that clamps tight to its rock, yet detaches and r
 ~/Documents ─▶ /Volumes/X9/Documents      drive back → offline work merged in, never overwritten
 ```
 
-Single file. Pure bash. **No kernel extensions, no daemons, no network.**
+Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~300 lines you can read over one coffee.
 
 ---
 
 ## The problem
 
-Macs ship with small, expensive internal storage, so a lot of people put their `Documents`, `Downloads`, `Desktop`, and project folders on a cheap external SSD and symlink to it. It works great — until the drive is unplugged.
+Macs ship with small, expensive internal storage. So a lot of us put `Documents`, `Downloads`, `Desktop`, and project folders on a cheap **external SSD** and symlink to them. It works great — until the drive is unplugged.
 
 The moment that happens, a plain symlink points to **nothing**:
 
@@ -29,7 +43,7 @@ The moment that happens, a plain symlink points to **nothing**:
 - your Desktop and Documents look empty,
 - and a reboot can silently recreate empty folders, **splitting your files across two places**.
 
-macOS has never had a "work offline, sync when it's back" mechanism for this (the way Windows has Offline Files). So the usual options are: babysit the cable, or give up and keep everything on the internal disk.
+macOS has never had a "work offline, sync when it's back" mechanism for external volumes (the way Windows has Offline Files). So the usual options are: babysit the cable, or give up and cram everything back onto the internal disk.
 
 ## The solution
 
@@ -39,7 +53,7 @@ macOS has never had a "work offline, sync when it's back" mechanism for this (th
 - **Unplugged** → within a second, limpet turns each folder back into a **real local folder** so every save keeps working.
 - **Reconnected** → limpet moves whatever you created while offline back onto the drive, **keeping both copies on any name clash** — it never overwrites.
 
-It's *offline mode for your drive.*
+It's *offline mode for your external drive.*
 
 ---
 
@@ -161,6 +175,22 @@ Turn on automatic checks during `limpet setup` (or set `AUTO_UPDATE=1` in the co
 
 ---
 
+## FAQ
+
+**Wait — is this safe? Will I lose files?**
+No. limpet byte-verifies every copy before it deletes the original, and if two files ever clash it keeps *both*, timestamped. It's not a backup, though — keep your Time Machine.
+
+**Who is this actually for?**
+Honestly? Me. It runs on my machine every day. I made it public because you're probably in the same boat — small internal disk, big external SSD. If it helps, ⭐ the repo or say hi.
+
+**Does it work with any drive and any folders?**
+Any external volume, and whatever home folders you pick. `limpet link <path>` moves anything else onto the drive too.
+
+**Do I have to babysit it?**
+No. The guard + terminal hook handle everything. Unplug, replug, reboot with the drive gone — it sorts itself out.
+
+---
+
 ## Caveats (the honest list)
 
 - **Eject cleanly.** If a drive is yanked without ejecting, macOS may remount it as `"X9 1"`. limpet keys off the exact mount path, so `limpet doctor` will flag this — eject and replug to restore the name.
@@ -189,6 +219,12 @@ Your config stays at `~/.config/limpet/` until you delete it.
 - `AGENTS.md` — architecture + invariants for humans and AI agents working on the code.
 
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Why I made this
+
+I bought a Mac, looked at Apple's storage-upgrade prices, quietly closed the tab, and bought an external SSD instead. Then it kept breaking every time the cable moved. This is the tool I wish had existed that afternoon. It's a personal project — I run it on my own machine — but I made it public so anyone in the same spot can use it. Built by [Pritam](https://www.notpritam.in/) · [blog](https://blog.notpritam.in/).
 
 ## License
 

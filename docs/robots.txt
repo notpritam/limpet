@@ -1,0 +1,6 @@
+# limpet — https://limpet.notpritam.in
+# Crawl freely. AI crawlers welcome too — see /llms.txt
+User-agent: *
+Allow: /
+
+Sitemap: https://limpet.notpritam.in/sitemap.xml
