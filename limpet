@@ -462,10 +462,24 @@ cmd_setup() {
   # 4) do it
   hr
   local f
-  for f in "${FOLDERS[@]}"; do
-    info "linking ${B}$f${R} → $DRIVE/$f"
-    move_to_drive "$HOME/$f" "$DRIVE/$f" && ok "$f is now on the drive" || err "$f failed (left intact)"
-  done
+  if _ui_animated; then
+    title "Moving your folders onto ${B}$DRIVE${R} …"
+    _rows_begin 1
+    for f in "${FOLDERS[@]}"; do _rows_add "$f" "$(_du_kb "$HOME/$f")"; done
+    _rows_paint
+    local _i=0
+    for f in "${FOLDERS[@]}"; do
+      ROW_CUR=$_i
+      move_to_drive "$HOME/$f" "$DRIVE/$f" "$f" || true
+      _i=$(( _i + 1 ))
+    done
+    ROW_CUR=-1
+  else
+    for f in "${FOLDERS[@]}"; do
+      info "linking ${B}$f${R} → $DRIVE/$f"
+      move_to_drive "$HOME/$f" "$DRIVE/$f" "$f" && ok "$f is now on the drive" || err "$f failed (left intact)"
+    done
+  fi
   save_config
   [ "$DRY_RUN" = 1 ] || { install_agent; install_hook; }
   hr
