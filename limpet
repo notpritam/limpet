@@ -67,7 +67,7 @@ _spin_frame() { printf '%s' "${_SPIN[$(( ${1:-0} % 10 ))]}"; }
 _rep() { # <char> <count> -> char repeated count times.
   # MUST use printf-pad + substitution, NOT a `out="$out█"` loop: bash 3.2 under a
   # UTF-8 locale corrupts iterative multibyte self-append (verified — produces garbage).
-  local ch="$1" n="$2"; [ "$n" -le 0 ] && return 0
+  local ch="${1:-}" n="${2:-0}"; [ "$n" -le 0 ] && return 0
   local s; s="$(printf "%${n}s" "")"; printf '%s' "${s// /$ch}"
 }
 
