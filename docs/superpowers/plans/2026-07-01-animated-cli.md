@@ -174,7 +174,7 @@ git commit -m "feat(cli): sourceable script + pure UI helpers (_human_kb/_bar_st
 
 **Interfaces:**
 - Consumes: `_ui_animated`, `_bar_str`, `_spin_frame`, `_human_kb`, `BAR_W`.
-- Produces: `_du_kb <path>` → kb; row state globals `ROW_LABEL[] ROW_STATE[] ROW_PCT[] ROW_TOTKB[] ROW_DSTKB[] ROWS_H SHOW_AGG ROW_CUR FRAME`; `_rows_begin <agg>`, `_rows_add <label> <totkb>`, `_rows_paint`, `_rows_update`, `_rows_state <s>`, `_rows_done`, `_rows_fail`, `_in_block`, `_copy_poll <idx> <src> <dst>`. `move_to_drive <src> <dst> [label]` now takes an optional label.
+- Produces: `_du_kb <path>` → kb; row state globals `ROW_LABEL[] ROW_STATE[] ROW_PCT[] ROW_TOTKB[] ROW_DSTKB[] ROWS_H SHOW_AGG ROW_CUR FRAME`; `_rows_begin <agg>`, `_rows_add <label> <totkb>`, `_rows_paint`, `_rows_update`, `_rows_state <s>`, `_rows_done`, `_rows_fail`, `_in_block`, `_run_poll <idx> <dst> -- <cmd...>` (generic du-poll engine; also used by the mirror in Task 5). `move_to_drive <src> <dst> [label]` now takes an optional label.
 
 - [ ] **Step 1: Add the engine.** In `limpet`, after Task 1's UI block, insert:
 
@@ -234,12 +234,12 @@ _rows_state() { _in_block || return 0; ROW_STATE[$ROW_CUR]="$1"; _rows_update; }
 _rows_done()  { _in_block || return 0; ROW_STATE[$ROW_CUR]=done; ROW_PCT[$ROW_CUR]=100; _rows_update; }
 _rows_fail()  { _in_block || return 0; ROW_STATE[$ROW_CUR]=failed; _rows_update; }
 
-_copy_poll() { # <idx> <src> <dst> : run ditto in bg, poll dst size -> row pct. Falls back to plain ditto off-TTY.
-  local idx="$1" src="$2" dst="$3"
-  if ! _ui_animated || [ "$idx" -lt 0 ]; then ditto "$src" "$dst"; return $?; fi
+_run_poll() { # <idx> <dst> -- cmd... : run the copy cmd in bg, poll dst size -> row pct. Plain cmd off-TTY.
+  local idx="$1" dst="$2"; shift 2; [ "${1:-}" = "--" ] && shift
+  if ! _ui_animated || [ "$idx" -lt 0 ]; then "$@"; return $?; fi
   local tot="${ROW_TOTKB[$idx]}" d p
   ROW_STATE[$idx]=copying
-  ditto "$src" "$dst" & local pid=$!
+  "$@" & local pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     d="$(_du_kb "$dst")"; ROW_DSTKB[$idx]="$d"
     p=0; [ "$tot" -gt 0 ] && p=$(( d * 100 / tot )); [ "$p" -gt 99 ] && p=99
@@ -263,7 +263,7 @@ move_to_drive() {
   else
     if [ "$DRY_RUN" = 1 ]; then say "${DIM}[dry-run] ditto '$src' '$dst'${R}"; return 0; fi
     if _ui_animated && [ "$ROW_CUR" -lt 0 ]; then _rows_begin 0; _rows_add "$label" "$(_du_kb "$src")"; _rows_paint; ROW_CUR=0; standalone=1; fi
-    _copy_poll "$ROW_CUR" "$src" "$dst" || { _rows_fail; err "copy failed: $src"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
+    _run_poll "$ROW_CUR" "$dst" -- ditto "$src" "$dst" || { _rows_fail; err "copy failed: $src"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
   fi
   [ "$DRY_RUN" = 1 ] && { say "${DIM}[dry-run] verify + replace '$src' with symlink${R}"; return 0; }
   _rows_state verifying
@@ -288,7 +288,7 @@ move_to_drive() {
 echo "[copy engine — off-TTY is silent + correct]"
 csrc="$SB/csrc"; mkdir -p "$csrc/sub"; echo hi > "$csrc/a.txt"; echo yo > "$csrc/sub/b.txt"
 cdst="$SB/cdst"
-out="$( _copy_poll -1 "$csrc" "$cdst" 2>&1 )"; st=$?
+out="$( _run_poll -1 "$cdst" -- ditto "$csrc" "$cdst" 2>&1 )"; st=$?
 eq "copy exit 0"          "$st" "0"
 eq "a.txt copied"         "$(cat "$cdst/a.txt" 2>/dev/null)"     "hi"
 eq "sub/b.txt copied"     "$(cat "$cdst/sub/b.txt" 2>/dev/null)" "yo"
@@ -493,26 +493,9 @@ git commit -m "feat(cli): spin helper for async steps (update download, sync)"
 - Modify: `limpet` — `run_mirror` (lines 152–167).
 
 **Interfaces:**
-- Consumes: `_ui_animated`, `_rows_*`, `_copy_poll`, `_du_kb`. Note `_copy_poll` runs `ditto`; for the mirror we need it to run `rsync`, so add a tiny generic variant.
+- Consumes: `_ui_animated`, `_rows_*`, `_run_poll` (the generic du-poll engine defined in Task 2), `_du_kb`.
 
-- [ ] **Step 1: Add a command-agnostic poll wrapper.** After `_copy_poll` in the UI section, insert:
-
-```bash
-_run_poll() { # <idx> <dst> -- cmd... : like _copy_poll but runs an arbitrary copy command
-  local idx="$1" dst="$2"; shift 2; [ "${1:-}" = "--" ] && shift
-  if ! _ui_animated || [ "$idx" -lt 0 ]; then "$@"; return $?; fi
-  local tot="${ROW_TOTKB[$idx]}" d p
-  ROW_STATE[$idx]=copying
-  "$@" & local pid=$!
-  while kill -0 "$pid" 2>/dev/null; do
-    d="$(_du_kb "$dst")"; ROW_DSTKB[$idx]="$d"
-    p=0; [ "$tot" -gt 0 ] && p=$(( d * 100 / tot )); [ "$p" -gt 99 ] && p=99
-    [ "$p" -lt "${ROW_PCT[$idx]}" ] && p="${ROW_PCT[$idx]}"
-    ROW_PCT[$idx]="$p"; _rows_update; sleep 0.2
-  done
-  wait "$pid"; return $?
-}
-```
+- [ ] **Step 1: Reuse the Task 2 engine — do NOT add a second poll function.** `run_mirror` drives each entry through the existing `_run_poll <idx> <dst> -- <cmd...>` (added in Task 2, already used by `move_to_drive`). Confirm `_run_poll` is present in `limpet` before wiring the mirror.
 
 - [ ] **Step 2: Render mirror entries as rows (TTY only).** Replace the body of `run_mirror` (the `while` loop and surrounding, lines ~157–166) with a version that pre-counts entries and drives a row each. Replace:
 
@@ -798,8 +781,8 @@ Note for release: tag `v0.2.0` and attach the `limpet` file as the release asset
 ## Self-Review
 
 **Spec coverage:**
-- du-poll engine → Task 2 (`_copy_poll`) + Task 5 (`_run_poll`). ✓
-- Smart bar (fallback when tiny/unknown) → `_copy_poll` off-TTY/`idx<0` path; tiny-copy threshold noted (fast copies simply fill in one tick — acceptable; a hard `BAR_MIN_KB` skip can be added if flicker appears). ✓
+- du-poll engine → Task 2 (`_run_poll`, generic; also used by `move_to_drive`), reused by Task 5 for the rsync mirror (no duplicate poll function). ✓
+- Smart bar (fallback when tiny/unknown) → `_run_poll` off-TTY/`idx<0` path; tiny-copy threshold noted (fast copies simply fill in one tick — acceptable; a hard `BAR_MIN_KB` skip can be added if flicker appears). ✓
 - Block-fill style + sub-cell + braille → `_bar_str` (`_BLK` eighths) + `_SPIN` (Task 1). ✓
 - Golden rule / degradation matrix → `_ui_animated` gate; explicit no-ESC tests in Tasks 3, 5, 6. ✓
 - Data safety unchanged → `move_to_drive` verify/swap tail kept verbatim; characterization test Task 2. ✓
@@ -813,6 +796,6 @@ Note for release: tag `v0.2.0` and attach the `limpet` file as the release asset
 
 **Placeholder scan:** No TBD/TODO. The one soft spot — `BAR_MIN_KB` tiny-copy skip — is called out as optional in review, not left as a silent gap. Every code step shows complete code.
 
-**Type/name consistency:** `_ui_animated`, `_copy_poll`, `_run_poll`, `_rows_begin/_add/_paint/_update/_state/_done/_fail`, `_in_block`, `_du_kb`, `_human_kb`, `_bar_str`, `_spin_frame`, `spin`, `cmd_watch`, globals `ROW_*/ROWS_H/SHOW_AGG/ROW_CUR/FRAME` — used identically across tasks. `move_to_drive` third arg `label` added in Task 2 and used in Tasks 2/3. ✓
+**Type/name consistency:** `_ui_animated`, `_run_poll`, `_rows_begin/_add/_paint/_update/_state/_done/_fail`, `_in_block`, `_du_kb`, `_human_kb`, `_rep`, `_bar_str`, `_spin_frame`, `spin`, `cmd_watch`, globals `ROW_*/ROWS_H/SHOW_AGG/ROW_CUR/FRAME` — used identically across tasks. `move_to_drive` third arg `label` added in Task 2 and used in Tasks 2/3. ✓
 
 **Deviation from spec (intentional, noted):** `watch` uses `sleep`+Ctrl-C instead of `read -t 0.4` (bash 3.2 lacks fractional read timeouts); `cmd_sync` spins only the guard (the mirror draws its own bars — spinning around it would fight the cursor rewrites).
