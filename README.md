@@ -3,7 +3,7 @@
 
 <div align="center">
 
-# 🐚 limpet
+# limpet
 
 ### Run your Mac off an external SSD as primary storage — without it breaking when you unplug.
 
