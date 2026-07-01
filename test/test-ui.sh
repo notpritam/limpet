@@ -56,6 +56,11 @@ eq "src is a symlink" "$([ -L "$msrc" ] && echo yes)" "yes"
 eq "symlink → dst"    "$(readlink "$msrc")"           "$mdst"
 eq "data on drive"    "$(cat "$mdst/f.txt")"          "data"
 
+echo "[spin — returns child status, silent off-TTY]"
+out="$( spin "ok step" -- true 2>&1 )";  eq "spin true → 0"  "$?" "0"
+eq "spin silent off-tty (true)" "$(printf '%s' "$out" | LC_ALL=C tr -dc '\033' | wc -c | tr -d ' ')" "0"
+spin "bad step" -- false >/dev/null 2>&1; eq "spin false → 1" "$?" "1"
+
 echo
 printf 'RESULT: \033[32m%d passed\033[0m, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
