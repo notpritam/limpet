@@ -720,6 +720,8 @@ cp "/private/tmp/claude-501/-Volumes-X9-Documents-Projects-limpet/aa78c544-930f-
 ```
 (Use an existing class so it inherits site styling; adjust the class name to one present in `index.html`.)
 
+**Also fix the stale JSON-LD version in the same file:** change `"softwareVersion":"0.1.0"` (around `docs/index.html:32`) to `"softwareVersion":"0.2.0"`, so the site's structured data matches the v0.2.0 release. (This is the only stale `0.1.0` left in shippable assets.)
+
 - [ ] **Step 4: Add to sitemap.** In `docs/sitemap.xml`, duplicate an existing `<url>` block and set:
 
 ```xml
