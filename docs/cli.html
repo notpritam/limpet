@@ -192,7 +192,7 @@
     lines.push(o); return o;
   }
   function fmtSize(o){
-    if(o.state==='queued') return span('faint','queued');
+    if(o.state==='queued') return 'queued';
     var cur = o.pct/100*o.total;
     if(o.unit==='GB') return (o.state==='done'? o.total.toFixed(1) : cur.toFixed(1)+' / '+o.total.toFixed(1))+' GB';
     return (o.state==='done'? Math.round(o.total) : Math.round(cur)+' / '+Math.round(o.total))+' MB';
@@ -215,7 +215,7 @@
     var pctStr = pad(Math.round(o.pct)+'%',4);
     var pctCls = o.state==='done' ? 'e' : (o.state==='queued'?'faint':'t');
     return '  '+span(gcls,glyph)+' '+span(o.state==='queued'?'faint':'ink',pad(o.label,12))+' '
-         + barStr+'  '+span(pctCls,pctStr)+'   '+span('mut',fmtSize(o));
+         + barStr+'  '+span(pctCls,pctStr)+'   '+span(o.state==='queued'?'faint':'mut',fmtSize(o));
   }
 
   function render(){
