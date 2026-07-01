@@ -543,6 +543,32 @@ cmd_status() {
   done
 }
 
+cmd_watch() {
+  require_config
+  if ! _ui_animated; then cmd_status; return 0; fi
+  local H=$(( ${#FOLDERS[@]} + 4 )) first=1 prev=-1 f t present frame=0
+  tput civis 2>/dev/null
+  trap 'tput cnorm 2>/dev/null; printf "\n"; exit 0' INT TERM
+  while :; do
+    present=0; drive_present && present=1
+    [ "$first" = 1 ] && first=0 || tput cuu "$H"
+    # header
+    printf '\r'; tput el
+    if [ "$present" = 1 ]; then printf '  %s●%s %sX9%s   %sconnected%s   %s%s%s\n' "$CYN" "$R" "$B" "$R" "$CYN" "$R" "$DIM" "$DRIVE" "$R"
+    else printf '  %s●%s %sX9%s   %sUNPLUGGED%s   %swas %s%s\n' "$YEL" "$R" "$B" "$R" "$YEL" "$R" "$DIM" "$DRIVE" "$R"; fi
+    printf '\r'; tput el; printf '  %sguard%s   %s\n' "$DIM" "$R" "$(launchctl list 2>/dev/null | grep -q "$LABEL" && printf '%sloaded%s' "$GRN" "$R" || printf '%snot loaded%s' "$RED" "$R")"
+    printf '\r'; tput el; printf '\n'
+    for f in "${FOLDERS[@]}"; do
+      printf '\r'; tput el
+      if [ -L "$HOME/$f" ]; then t="$(readlink "$HOME/$f")"; printf '  %s✓%s %-12s %s→ %s%s\n' "$GRN" "$R" "~/$f" "$DIM" "$t" "$R"
+      elif [ -d "$HOME/$f" ]; then printf '  %s•%s %-12s %slocal — failover mode%s\n' "$BLU" "$R" "~/$f" "$DIM" "$R"
+      else printf '  %s?%s %-12s %smissing%s\n' "$YEL" "$R" "~/$f" "$DIM" "$R"; fi
+    done
+    printf '\r'; tput el; printf '  %spress Ctrl-C to quit · redraws on plug / unplug%s\n' "$DIM" "$R"
+    prev="$present"; frame=$(( frame + 1 )); sleep 0.5
+  done
+}
+
 cmd_doctor() {
   require_config
   title "limpet doctor"
@@ -610,6 +636,7 @@ ${B}COMMANDS${R}
   ${CYN}setup${R}            Interactive wizard: pick a drive + folders, move them over, install the guard.
                    Flags for automation: --drive <path> --folders a,b,c [--mirror p1,p2] --yes
   ${CYN}status${R}           Show drive + folder state. Add --json for machine output.
+  ${CYN}watch${R}            Live view: drive + folder state, redraws on plug/unplug (Ctrl-C to quit).
   ${CYN}doctor${R}           Health-check and offer fixes.
   ${CYN}sync${R}             Run the failover/failback + mirror right now.
   ${CYN}link${R} <path>      Move any extra file/folder onto the drive and symlink it back.
@@ -642,6 +669,7 @@ main() {
   case "$cmd" in
     setup)        cmd_setup "$@";;
     status)       cmd_status "$@";;
+    watch)        cmd_watch;;
     doctor)       cmd_doctor;;
     sync)         cmd_sync;;
     link)         cmd_link "$@";;
