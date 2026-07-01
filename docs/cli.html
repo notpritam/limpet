@@ -88,7 +88,8 @@
   .t{color:var(--teal)}.e{color:var(--emer)}.b{color:var(--blue)}.w{color:var(--warn)}.r{color:var(--red)}
   .ink{color:var(--ink)}.mut{color:var(--mut)}.faint{color:var(--faint)}
   .bold{font-weight:500}
-  .fill{color:var(--teal)}.filld{color:var(--emer)}.empty{color:rgba(246,248,251,.16)}
+  .fill{color:var(--teal)}.filld{color:var(--emer)}.empty{color:#4a505a}
+  .grad{background:linear-gradient(90deg,#2dd4bf,#34d399);-webkit-background-clip:text;background-clip:text;color:transparent}
   .cur{display:inline-block;width:8px;height:1.05em;vertical-align:-2px;background:var(--teal);animation:blink 1.05s steps(1) infinite}
   .pdot{display:inline-block}
   @keyframes blink{50%{opacity:0}}
@@ -206,7 +207,7 @@
     var span_ = o.pct/100*W;
     var full = Math.floor(span_);
     var partial = Math.round((span_-full)*8);
-    var doneCls = o.state==='done' ? 'filld' : 'fill';
+    var doneCls = 'grad';   // teal→emerald gradient fill, matching the CLI's truecolor bar
     var barStr = '';
     if(full>0) barStr += '<span class="'+doneCls+'">'+'█'.repeat(full)+'</span>';
     if(partial>0 && full<W) barStr += '<span class="'+doneCls+'">'+BLK[partial]+'</span>';
