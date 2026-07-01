@@ -38,6 +38,24 @@ eq "wrap 10"  "$(_spin_frame 10)" "⠋"
 echo "[ui_animated is false under NO_COLOR]"
 _ui_animated; eq "gated off" "$?" "1"
 
+echo "[copy engine — off-TTY is silent + correct]"
+csrc="$SB/csrc"; mkdir -p "$csrc/sub"; echo hi > "$csrc/a.txt"; echo yo > "$csrc/sub/b.txt"
+cdst="$SB/cdst"
+out="$( _run_poll -1 "$cdst" -- ditto "$csrc" "$cdst" 2>&1 )"; st=$?
+eq "copy exit 0"          "$st" "0"
+eq "a.txt copied"         "$(cat "$cdst/a.txt" 2>/dev/null)"     "hi"
+eq "sub/b.txt copied"     "$(cat "$cdst/sub/b.txt" 2>/dev/null)" "yo"
+escs="$(printf '%s' "$out" | LC_ALL=C tr -dc '\033' | wc -c | tr -d ' ')"
+eq "no ESC bytes off-TTY" "$escs" "0"
+
+echo "[move_to_drive — copy, verify, swap to symlink]"
+msrc="$SB/Docs"; mkdir -p "$msrc"; echo data > "$msrc/f.txt"
+mdst="$SB/drv/Docs"; mkdir -p "$SB/drv"
+move_to_drive "$msrc" "$mdst" "Docs" >/dev/null 2>&1
+eq "src is a symlink" "$([ -L "$msrc" ] && echo yes)" "yes"
+eq "symlink → dst"    "$(readlink "$msrc")"           "$mdst"
+eq "data on drive"    "$(cat "$mdst/f.txt")"          "data"
+
 echo
 printf 'RESULT: \033[32m%d passed\033[0m, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

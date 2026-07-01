@@ -80,6 +80,76 @@ _bar_str() { # <pct> <width> -> "████▏░░░"  (plain; caller adds 
   printf '%s%s%s' "$(_rep █ "$full")" "$mid" "$(_rep ░ "$rest")"
 }
 
+ROW_LABEL=(); ROW_STATE=(); ROW_PCT=(); ROW_TOTKB=(); ROW_DSTKB=()
+ROWS_H=0; SHOW_AGG=0; ROW_CUR=-1; FRAME=0
+
+_du_kb() { local k; k="$(du -sk "$1" 2>/dev/null | awk 'NR==1{print $1}')"; echo "${k:-0}"; }
+_in_block() { _ui_animated && [ "$ROW_CUR" -ge 0 ]; }
+
+_rows_begin() { ROW_LABEL=(); ROW_STATE=(); ROW_PCT=(); ROW_TOTKB=(); ROW_DSTKB=(); SHOW_AGG="${1:-0}"; ROWS_H=0; }
+_rows_add()   { ROW_LABEL+=("$1"); ROW_TOTKB+=("${2:-0}"); ROW_DSTKB+=(0); ROW_PCT+=(0); ROW_STATE+=(queued); }
+
+_row_line() { # <idx>
+  local i="$1" glyph gcls barcls
+  case "${ROW_STATE[$i]}" in
+    queued)   glyph='○'; gcls="$DIM";  barcls="$DIM" ;;
+    done)     glyph='✓'; gcls="$GRN";  barcls="$GRN" ;;
+    failed)   glyph='✗'; gcls="$RED";  barcls="$RED" ;;
+    verifying)glyph="$(_spin_frame $FRAME)"; gcls="$CYN"; barcls="$CYN" ;;
+    *)        glyph="$(_spin_frame $FRAME)"; gcls="$CYN"; barcls="$CYN" ;;
+  esac
+  local size
+  if [ "${ROW_STATE[$i]}" = queued ]; then size="${DIM}queued${R}"
+  elif [ "${ROW_STATE[$i]}" = done ]; then size="$(_human_kb "${ROW_TOTKB[$i]}")"
+  else size="$(_human_kb "${ROW_DSTKB[$i]}") / $(_human_kb "${ROW_TOTKB[$i]}")"; fi
+  printf '  %s%s%s %s%-12s%s %s%s%s  %s%3d%%%s   %s%s%s' \
+    "$gcls" "$glyph" "$R" "$B" "${ROW_LABEL[$i]}" "$R" \
+    "$barcls" "$(_bar_str "${ROW_PCT[$i]}" "$BAR_W")" "$R" \
+    "$gcls" "${ROW_PCT[$i]}" "$R" "$DIM" "$size" "$R"
+}
+_agg_line() {
+  local i=0 done=0 tot=0
+  while [ "$i" -lt "${#ROW_TOTKB[@]}" ]; do
+    tot=$(( tot + ROW_TOTKB[i] )); done=$(( done + ROW_TOTKB[i] * ROW_PCT[i] / 100 )); i=$(( i + 1 ))
+  done
+  printf '  %s▸%s %s%s of %s · verified byte-for-byte before removal%s' \
+    "$CYN" "$R" "$DIM" "$(_human_kb "$done")" "$(_human_kb "$tot")" "$R"
+}
+
+_rows_paint() {
+  _ui_animated || return 0
+  local i=0
+  while [ "$i" -lt "${#ROW_LABEL[@]}" ]; do _row_line "$i"; printf '\n'; i=$(( i + 1 )); done
+  [ "$SHOW_AGG" = 1 ] && { _agg_line; printf '\n'; }
+  ROWS_H=$(( ${#ROW_LABEL[@]} + ( SHOW_AGG == 1 ? 1 : 0 ) ))
+}
+_rows_update() {
+  _ui_animated || return 0
+  FRAME=$(( FRAME + 1 ))
+  tput cuu "$ROWS_H"
+  local i=0
+  while [ "$i" -lt "${#ROW_LABEL[@]}" ]; do printf '\r'; tput el; _row_line "$i"; printf '\n'; i=$(( i + 1 )); done
+  [ "$SHOW_AGG" = 1 ] && { printf '\r'; tput el; _agg_line; printf '\n'; }
+}
+_rows_state() { _in_block || return 0; ROW_STATE[$ROW_CUR]="$1"; _rows_update; }
+_rows_done()  { _in_block || return 0; ROW_STATE[$ROW_CUR]=done; ROW_PCT[$ROW_CUR]=100; _rows_update; }
+_rows_fail()  { _in_block || return 0; ROW_STATE[$ROW_CUR]=failed; _rows_update; }
+
+_run_poll() { # <idx> <dst> -- cmd... : run the copy cmd in bg, poll dst size -> row pct. Plain cmd off-TTY.
+  local idx="$1" dst="$2"; shift 2; [ "${1:-}" = "--" ] && shift
+  if ! _ui_animated || [ "$idx" -lt 0 ]; then "$@"; return $?; fi
+  local tot="${ROW_TOTKB[$idx]}" d p
+  ROW_STATE[$idx]=copying
+  "$@" & local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    d="$(_du_kb "$dst")"; ROW_DSTKB[$idx]="$d"
+    p=0; [ "$tot" -gt 0 ] && p=$(( d * 100 / tot )); [ "$p" -gt 99 ] && p=99
+    [ "$p" -lt "${ROW_PCT[$idx]}" ] && p="${ROW_PCT[$idx]}"   # monotonic
+    ROW_PCT[$idx]="$p"; _rows_update; sleep 0.2
+  done
+  wait "$pid"; return $?
+}
+
 # ----------------------------------------------------------------------------- config
 DRIVE=""
 FOLDERS=()
@@ -131,21 +201,26 @@ verify_copy() { # verify_copy <src> <dst>  -> 0 if identical
   else [ "$(shasum "$s" | awk '{print $1}')" = "$(shasum "$d" | awk '{print $1}')" ]; fi
 }
 
-# move_to_drive <abs-src> <abs-dst> : ditto-copy, verify, then delete src + symlink it to dst
+# move_to_drive <abs-src> <abs-dst> [label] : ditto-copy, verify, then delete src + symlink it to dst
 move_to_drive() {
-  local src="$1" dst="$2"
-  [ -L "$src" ] && { info "already a symlink: ${DIM}$src${R}"; return 0; }
+  local src="$1" dst="$2" label="${3:-$(basename "$dst")}"
+  [ -L "$src" ] && { _in_block && { _rows_done; return 0; }; info "already a symlink: ${DIM}$src${R}"; return 0; }
   [ -e "$src" ] || { ln -s "$dst" "$src"; return 0; }
+  local standalone=0
   if [ -e "$dst" ] && [ ! -L "$dst" ]; then
-    warn "destination already exists, verifying instead of copying: $dst"
+    _in_block || warn "destination already exists, verifying instead of copying: $dst"
   else
     if [ "$DRY_RUN" = 1 ]; then say "${DIM}[dry-run] ditto '$src' '$dst'${R}"; return 0; fi
-    ditto "$src" "$dst" || { err "copy failed: $src"; return 1; }
+    if _ui_animated && [ "$ROW_CUR" -lt 0 ]; then _rows_begin 0; _rows_add "$label" "$(_du_kb "$src")"; _rows_paint; ROW_CUR=0; standalone=1; fi
+    _run_poll "$ROW_CUR" "$dst" -- ditto "$src" "$dst" || { _rows_fail; err "copy failed: $src"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
   fi
   [ "$DRY_RUN" = 1 ] && { say "${DIM}[dry-run] verify + replace '$src' with symlink${R}"; return 0; }
-  verify_copy "$src" "$dst" || { err "verify FAILED — leaving original intact: $src"; return 1; }
+  _rows_state verifying
+  verify_copy "$src" "$dst" || { _rows_fail; err "verify FAILED — leaving original intact: $src"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
   chmod -N "$src" 2>/dev/null
-  rm -rf "$src" && ln -s "$dst" "$src" || { err "swap failed (data is safe at $dst)"; return 1; }
+  rm -rf "$src" && ln -s "$dst" "$src" || { _rows_fail; err "swap failed (data is safe at $dst)"; [ "$standalone" = 1 ] && ROW_CUR=-1; return 1; }
+  _rows_done
+  [ "$standalone" = 1 ] && ROW_CUR=-1
   return 0
 }
 
@@ -455,7 +530,7 @@ cmd_link() { # limpet link <path>   (move any extra file/folder onto the drive +
   local dst="$DRIVE/$(basename "$abs")"
   [ -e "$dst" ] && die "destination exists: $dst"
   info "moving ${B}$abs${R} → $dst"
-  move_to_drive "$abs" "$dst" && ok "linked." || err "failed."
+  move_to_drive "$abs" "$dst" "$(basename "$abs")" && ok "linked." || err "failed."
 }
 cmd_unlink() { # limpet unlink <path>  (bring a symlinked path back to local disk)
   local p="${1:-}"; [ -n "$p" ] || die "usage: limpet unlink <path>"
