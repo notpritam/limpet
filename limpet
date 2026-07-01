@@ -3,7 +3,7 @@
 # ABOUTME: Single-file, pure-bash CLI. No kernel extensions, no daemons, no network. See `limpet help`.
 set -uo pipefail
 
-LIMPET_VERSION="0.1.0"
+LIMPET_VERSION="0.2.0"
 
 # ----------------------------------------------------------------------------- paths
 CONFIG_DIR="${LIMPET_CONFIG_DIR:-$HOME/.config/limpet}"
