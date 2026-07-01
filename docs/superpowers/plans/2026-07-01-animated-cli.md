@@ -529,7 +529,7 @@ with:
   local _i=0
   for line in "${entries[@]}"; do
     src="$DRIVE/$line"; dst="$MIRROR_DEST/$line"; mkdir -p "$(dirname "$dst")"
-    ROW_CUR=$( _ui_animated && echo "$_i" || echo -1 )
+    if _ui_animated; then ROW_CUR=$_i; else ROW_CUR=-1; fi   # NB: don't put _ui_animated in $(...) — [ -t 1 ] is false in a subshell pipe
     if [ -d "$src" ]; then mkdir -p "$dst"; _run_poll "$ROW_CUR" "$dst" -- rsync -a --delete "$src/" "$dst/" 2>>"$LOG" && { n=$((n+1)); _rows_done; } || _rows_fail
     else _run_poll "$ROW_CUR" "$dst" -- rsync -a "$src" "$dst" 2>>"$LOG" && { n=$((n+1)); _rows_done; } || _rows_fail; fi
     _i=$(( _i + 1 ))
