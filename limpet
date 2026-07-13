@@ -3,7 +3,7 @@
 # ABOUTME: Single-file, pure-bash CLI. No kernel extensions, no daemons, no network. See `limpet help`.
 set -uo pipefail
 
-LIMPET_VERSION="0.3.1"
+LIMPET_VERSION="0.3.2"
 
 # ----------------------------------------------------------------------------- paths
 CONFIG_DIR="${LIMPET_CONFIG_DIR:-$HOME/.config/limpet}"
@@ -213,7 +213,7 @@ save_config() {
   {
     echo "# limpet config — edit with care, or re-run \`limpet setup\`"
     printf 'DRIVE=%q\n' "$DRIVE"
-    printf 'FOLDERS=('; for f in "${FOLDERS[@]}"; do printf '%q ' "$f"; done; printf ')\n'
+    printf 'FOLDERS=('; for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do printf '%q ' "$f"; done; printf ')\n'
     printf 'MIRROR_DEST=%q\n' "$MIRROR_DEST"
     printf 'AUTO_UPDATE=%q\n' "$AUTO_UPDATE"
     printf 'GUARD_INTERVAL=%q\n' "$GUARD_INTERVAL"
@@ -254,7 +254,9 @@ drive_present() {
   # require a live `mount` entry; a non-/Volumes path (the test harness) falls back to `[ -d ]`.
   [ -n "$DRIVE" ] && [ -d "$DRIVE" ] || return 1
   case "$DRIVE" in
-    /Volumes/*) mount 2>/dev/null | grep -qF " on $DRIVE (" ;;
+    # NB: capture `mount` first — `mount | grep -q` would SIGPIPE the producer and, under
+    # `set -o pipefail`, return non-zero even when mounted (a false "unplugged" → spurious failover).
+    /Volumes/*) case "$(mount 2>/dev/null)" in *" on $DRIVE ("*) return 0;; *) return 1;; esac ;;
     *)          return 0 ;;
   esac
 }
@@ -264,7 +266,7 @@ with_lock() { # with_lock <name> <command...>
   local name="$1"; shift
   local lock="$STATE_DIR/$name.lock.d"
   mkdir -p "$STATE_DIR" 2>/dev/null
-  [ -d "$lock" ] && find "$lock" -maxdepth 0 -mmin +2 2>/dev/null | grep -q . && rmdir "$lock" 2>/dev/null
+  [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ] && rmdir "$lock" 2>/dev/null
   if ! mkdir "$lock" 2>/dev/null; then logln "[$name] skip: another instance running"; return 0; fi
   trap 'rmdir "'"$lock"'" 2>/dev/null' RETURN
   "$@"
@@ -336,7 +338,7 @@ _guard_one() {
 run_guard() {
   load_config; [ -n "$DRIVE" ] || exit 0
   logln "[guard] run: drive $(drive_present && echo PRESENT || echo ABSENT)"
-  local f; for f in "${FOLDERS[@]}"; do _guard_one "$f"; done
+  local f; for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do _guard_one "$f"; done
 }
 
 # ----------------------------------------------------------------------------- the mirror
@@ -380,10 +382,25 @@ _env_each() {
   local cb="$1"; [ -f "$ENV_CONF" ] || return 0
   local line var val
   while IFS= read -r line || [ -n "$line" ]; do
-    line="${line%$'\r'}"; case "$line" in ''|\#*) continue;; esac
+    line="${line%$'\r'}"
+    case "$(_trim "$line")" in ''|\#*) continue;; esac        # blank / comment (even if indented)
     case "$line" in *=*) ;; *) continue;; esac
     var="$(_trim "${line%%=*}")"; val="$(_trim "${line#*=}")"
-    [ -n "$var" ] && [ -n "$val" ] && "$cb" "$var" "$val"
+    # env.conf is hand-editable and its output is eval'd in every shell — only ever emit a real
+    # shell identifier. A typo'd or malicious name (`MY VAR`, `x$(…)`) is skipped, never eval'd.
+    [ -n "$val" ] && _env_valid_name "$var" && "$cb" "$var" "$val"
+  done < "$ENV_CONF"
+}
+# report mapping-shaped lines that were skipped as malformed, so `env`/`doctor` can flag a silent typo
+_env_malformed() {
+  [ -f "$ENV_CONF" ] || return 0
+  local line t var
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"; t="$(_trim "$line")"
+    case "$t" in ''|\#*) continue;; esac
+    case "$line" in *=*) ;; *) continue;; esac
+    var="$(_trim "${line%%=*}")"
+    _env_valid_name "$var" || printf '  %s\n' "$t"
   done < "$ENV_CONF"
 }
 _env_emit_export() { printf 'export %s=%q\n' "$1" "$DRIVE/$2"; }
@@ -418,22 +435,27 @@ _env_add() {
   [ -n "$path" ] || die "usage: limpet env add VAR relative/path-under-drive"
   load_config; mkdir -p "$CONFIG_DIR"; [ -f "$ENV_CONF" ] || seed_env_conf
   local tmp; tmp="$(mktemp)"
-  awk -v v="$var" '{ s=$0; sub(/^[ \t]+/,"",s)
+  # only replace env.conf if the rewrite fully succeeds — never clobber it with a partial/empty temp
+  if awk -v v="$var" '{ s=$0; sub(/^[ \t]+/,"",s)
       if (s ~ /^#/ || s=="") { print; next }
-      key=s; sub(/[ \t]*=.*/,"",key); if (key==v) next; print }' "$ENV_CONF" > "$tmp"
-  printf '%-16s = %s\n' "$var" "$path" >> "$tmp"
-  mv "$tmp" "$ENV_CONF"
-  ok "env: ${B}$var${R} → ${DIM}drive:${R}$path  ${DIM}(open a new shell to apply)${R}"
+      key=s; sub(/[ \t]*=.*/,"",key); if (key==v) next; print }' "$ENV_CONF" > "$tmp" \
+     && printf '%-16s = %s\n' "$var" "$path" >> "$tmp" && mv "$tmp" "$ENV_CONF"; then
+    ok "env: ${B}$var${R} → ${DIM}drive:${R}$path  ${DIM}(open a new shell to apply)${R}"
+  else
+    rm -f "$tmp"; die "could not update $ENV_CONF"
+  fi
 }
 _env_rm() {
   local var="${1:-}"; [ -n "$var" ] || die "usage: limpet env rm VAR"
   [ -f "$ENV_CONF" ] || return 0
   local tmp; tmp="$(mktemp)"
-  awk -v v="$var" '{ s=$0; sub(/^[ \t]+/,"",s)
+  if awk -v v="$var" '{ s=$0; sub(/^[ \t]+/,"",s)
       if (s ~ /^#/ || s=="") { print; next }
-      key=s; sub(/[ \t]*=.*/,"",key); if (key==v) next; print }' "$ENV_CONF" > "$tmp"
-  mv "$tmp" "$ENV_CONF"
-  ok "env: removed ${B}$var${R}  ${DIM}(open a new shell to apply)${R}"
+      key=s; sub(/[ \t]*=.*/,"",key); if (key==v) next; print }' "$ENV_CONF" > "$tmp" && mv "$tmp" "$ENV_CONF"; then
+    ok "env: removed ${B}$var${R}  ${DIM}(open a new shell to apply)${R}"
+  else
+    rm -f "$tmp"; die "could not update $ENV_CONF"
+  fi
 }
 _env_show() {
   load_config
@@ -441,13 +463,15 @@ _env_show() {
   title "env offload → $DRIVE"
   say "drive:   $( drive_present && printf '%sconnected%s' "$GRN" "$R" || printf '%sUNPLUGGED%s' "$YEL" "$R" )"
   hr
-  if [ ! -f "$ENV_CONF" ] || ! _env_has_active; then
-    say "  ${DIM}no active mappings — add one, e.g.:${R}  ${B}limpet env add GOCACHE Caches/go-build${R}"
-  else
+  if [ -f "$ENV_CONF" ] && _env_has_active; then
     _env_each _env_show_row
     grep -q "$ENV_BEGIN" "$HOME/.zshrc" 2>/dev/null || grep -q "$ENV_BEGIN" "$HOME/.bashrc" 2>/dev/null \
       || { hr; warn "shell hook missing — run ${B}limpet setup${R} to (re)install it, or vars won't apply in new shells"; }
+  else
+    say "  ${DIM}no active mappings — add one, e.g.:${R}  ${B}limpet env add GOCACHE Caches/go-build${R}"
   fi
+  local bad; bad="$(_env_malformed)"
+  [ -n "$bad" ] && { hr; warn "ignored malformed line(s) in env.conf — fix with ${B}limpet env edit${R}:"; printf '%s\n' "$bad"; }
 }
 cmd_env() {
   case "${1:-show}" in
@@ -489,6 +513,10 @@ uninstall_agent() {
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || launchctl unload "$PLIST" 2>/dev/null || true
   rm -f "$PLIST"
 }
+# Is the guard registered? Capture `launchctl list` first — `launchctl list | grep -q` would
+# SIGPIPE the (large) producer and, under `set -o pipefail`, intermittently report a false
+# "not loaded" (racy, worse the more launchd jobs you have). No pipe here = deterministic.
+_agent_loaded() { case "$(launchctl list 2>/dev/null)" in *"$LABEL"*) return 0;; esac; return 1; }
 
 shell_rc() { # echo the rc files that exist
   for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do [ -f "$rc" ] && echo "$rc"; done
@@ -594,12 +622,12 @@ cmd_autoupdate() { # internal: daily check; auto-applies if AUTO_UPDATE=1, else 
 _notice() { local a; a="$(cat "$STATE_DIR/update-available" 2>/dev/null)"; [ -n "$a" ] && _ver_gt "$a" "$LIMPET_VERSION" && [ -t 1 ] && warn "limpet ${B}v$a${R} is available — run ${B}limpet update${R}"; return 0; }
 
 # ----------------------------------------------------------------------------- list
-_is_managed() { local b="${1#$HOME/}"; case " ${FOLDERS[*]} " in *" $b "*) return 0;; esac; return 1; }
+_is_managed() { [ "${#FOLDERS[@]}" -gt 0 ] || return 1; local b="${1#$HOME/}"; case " ${FOLDERS[*]} " in *" $b "*) return 0;; esac; return 1; }
 cmd_list() {
   require_config
   title "managed folders → $DRIVE"
   local f
-  for f in "${FOLDERS[@]}"; do
+  for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do
     if [ -L "$HOME/$f" ]; then printf '  %s✓%s ~/%-12s → %s\n' "$GRN" "$R" "$f" "$(readlink "$HOME/$f")"
     elif [ -d "$HOME/$f" ]; then printf '  %s•%s ~/%-12s %s(local — failover mode)%s\n' "$BLU" "$R" "$f" "$DIM" "$R"
     else printf '  %s?%s ~/%-12s %s(missing)%s\n' "$YEL" "$R" "$f" "$DIM" "$R"; fi
@@ -630,7 +658,7 @@ cmd_setup() {
   hr
   if [ -f "$CONFIG" ]; then
     load_config
-    ok "Existing limpet setup detected — drive ${B}$DRIVE${R}, folders: ${B}${FOLDERS[*]}${R}"
+    ok "Existing limpet setup detected — drive ${B}$DRIVE${R}, folders: ${B}${FOLDERS[*]+"${FOLDERS[*]}"}${R}"
     say "${DIM}Re-running is safe: already-linked folders are kept as-is (no re-copy).${R}"; hr
   fi
 
@@ -658,7 +686,7 @@ cmd_setup() {
     [ -z "$fin" ] && fin="Documents,Downloads,Desktop"
     IFS=',' read -ra FOLDERS <<< "$fin"
   fi
-  ok "folders: ${B}${FOLDERS[*]}${R}"
+  ok "folders: ${B}${FOLDERS[*]+"${FOLDERS[*]}"}${R}"
 
   [ -n "$pre_mirror" ] && { mkdir -p "$CONFIG_DIR"; printf '%s\n' "${pre_mirror//,/$'\n'}" >> "$MIRROR_LIST"; }
 
@@ -677,17 +705,17 @@ cmd_setup() {
   if _ui_animated; then
     title "Moving your folders onto ${B}$DRIVE${R} …"
     _rows_begin 1
-    for f in "${FOLDERS[@]}"; do _rows_add "$f" "$(_du_kb "$HOME/$f")"; done
+    for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do _rows_add "$f" "$(_du_kb "$HOME/$f")"; done
     _rows_paint
     local _i=0
-    for f in "${FOLDERS[@]}"; do
+    for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do
       ROW_CUR=$_i
       move_to_drive "$HOME/$f" "$DRIVE/$f" "$f" || true
       _i=$(( _i + 1 ))
     done
     ROW_CUR=-1
   else
-    for f in "${FOLDERS[@]}"; do
+    for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do
       info "linking ${B}$f${R} → $DRIVE/$f"
       move_to_drive "$HOME/$f" "$DRIVE/$f" "$f" && ok "$f is now on the drive" || err "$f failed (left intact)"
     done
@@ -707,11 +735,11 @@ cmd_status() {
   local json=0; [ "${1:-}" = "--json" ] && json=1
   [ -n "$DRIVE" ] || { [ "$json" = 1 ] && echo '{"setup":false}' || die "not set up — run: limpet setup"; return; }
   local present="false"; drive_present && present="true"
-  local agent="false"; launchctl list 2>/dev/null | grep -q "$LABEL" && agent="true"
+  local agent="false"; _agent_loaded && agent="true"
   if [ "$json" = 1 ]; then
     printf '{"setup":true,"drive":"%s","drive_present":%s,"agent_loaded":%s,"folders":[' "$DRIVE" "$present" "$agent"
     local first=1 f t st
-    for f in "${FOLDERS[@]}"; do
+    for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do
       [ -L "$HOME/$f" ] && st="symlink" || { [ -d "$HOME/$f" ] && st="local" || st="missing"; }
       t="$(readlink "$HOME/$f" 2>/dev/null)"
       [ "$first" = 1 ] || printf ','; first=0
@@ -726,7 +754,7 @@ cmd_status() {
   say "guard:   $( [ "$agent" = true ] && printf '%sloaded%s' "$GRN" "$R" || printf '%snot loaded%s' "$RED" "$R" )"
   hr
   local f t
-  for f in "${FOLDERS[@]}"; do
+  for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do
     if [ -L "$HOME/$f" ]; then t="$(readlink "$HOME/$f")"; [ -e "$HOME/$f" ] && printf '  %s✓%s ~/%-10s → %s\n' "$GRN" "$R" "$f" "$t" || printf '  %s✗%s ~/%-10s → %s %s(broken — drive unplugged)%s\n' "$YEL" "$R" "$f" "$t" "$DIM" "$R"
     elif [ -d "$HOME/$f" ]; then printf '  %s•%s ~/%-10s %s(local folder — failover mode)%s\n' "$BLU" "$R" "$f" "$DIM" "$R"
     else printf '  %s?%s ~/%-10s %s(missing)%s\n' "$YEL" "$R" "$f" "$DIM" "$R"; fi
@@ -750,9 +778,9 @@ cmd_watch() {
     printf '\r'; tput el
     if [ "$present" = 1 ]; then printf '  %s●%s %sX9%s   %sconnected%s   %s%s%s\n' "$CYN" "$R" "$B" "$R" "$CYN" "$R" "$DIM" "$DRIVE" "$R"
     else printf '  %s●%s %sX9%s   %sUNPLUGGED%s   %swas %s%s\n' "$YEL" "$R" "$B" "$R" "$YEL" "$R" "$DIM" "$DRIVE" "$R"; fi
-    printf '\r'; tput el; printf '  %sguard%s   %s\n' "$DIM" "$R" "$(launchctl list 2>/dev/null | grep -q "$LABEL" && printf '%sloaded%s' "$GRN" "$R" || printf '%snot loaded%s' "$RED" "$R")"
+    printf '\r'; tput el; printf '  %sguard%s   %s\n' "$DIM" "$R" "$(_agent_loaded && printf '%sloaded%s' "$GRN" "$R" || printf '%snot loaded%s' "$RED" "$R")"
     printf '\r'; tput el; printf '\n'
-    for f in "${FOLDERS[@]}"; do
+    for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do
       printf '\r'; tput el
       if [ -L "$HOME/$f" ]; then t="$(readlink "$HOME/$f")"
         if [ -e "$HOME/$f" ]; then printf '  %s✓%s %-12s %s→ %s%s\n' "$GRN" "$R" "~/$f" "$DIM" "$t" "$R"
@@ -778,7 +806,7 @@ cmd_doctor() {
     warn "dir (${DIM}sudo rmdir '$DRIVE'${R}) or eject cleanly, then replug so the real volume returns."
     issues=$((issues+1))
   fi
-  launchctl list 2>/dev/null | grep -q "$LABEL" && ok "guard agent loaded" || { warn "guard agent NOT loaded"; issues=$((issues+1)); confirm "reinstall the agent?" && { install_agent; ok "reinstalled"; }; }
+  _agent_loaded && ok "guard agent loaded" || { warn "guard agent NOT loaded"; issues=$((issues+1)); confirm "reinstall the agent?" && { install_agent; ok "reinstalled"; }; }
   [ "${GUARD_INTERVAL:-0}" -gt 0 ] 2>/dev/null && ok "periodic reconcile: every ${GUARD_INTERVAL}s (missed-event safety net)"
   [ -x "$SELF" ] && ok "cli present: $SELF" || warn "cli path looks off: $SELF"
   # env hook present when there are active env mappings
@@ -786,6 +814,8 @@ cmd_doctor() {
     if grep -q "$ENV_BEGIN" "$HOME/.zshrc" 2>/dev/null || grep -q "$ENV_BEGIN" "$HOME/.bashrc" 2>/dev/null; then ok "env hook present"
     else warn "env mappings exist but the shell hook is missing (vars won't apply in new shells)"; issues=$((issues+1)); confirm "reinstall the shell hook?" && { install_hook; ok "reinstalled"; }; fi
   fi
+  local _envbad; _envbad="$(_env_malformed)"
+  [ -n "$_envbad" ] && { warn "env.conf has malformed line(s) (ignored — not exported); fix with ${B}limpet env edit${R}:"; printf '%s\n' "$_envbad" >&2; issues=$((issues+1)); }
   # drive-name drift gotcha (e.g. "/Volumes/X9 1")
   if ! drive_present && [ -n "$(ls -d "${DRIVE} "* 2>/dev/null)" ]; then
     warn "Your drive may have remounted under a different name (e.g. '${DRIVE} 1')."
@@ -830,7 +860,7 @@ cmd_uninstall() {
   uninstall_agent; uninstall_hook
   if [ -n "$DRIVE" ] && confirm "Also turn the symlinked folders back into normal LOCAL folders (copies data back from the drive)?"; then
     drive_present || die "drive must be mounted to copy data back"
-    local f; for f in "${FOLDERS[@]}"; do [ -L "$HOME/$f" ] && { rm -f "$HOME/$f"; ditto "$DRIVE/$f" "$HOME/$f" && ok "$f restored locally"; }; done
+    local f; for f in ${FOLDERS[@]+"${FOLDERS[@]}"}; do [ -L "$HOME/$f" ] && { rm -f "$HOME/$f"; ditto "$DRIVE/$f" "$HOME/$f" && ok "$f restored locally"; }; done
   fi
   ok "limpet uninstalled. (config left at $CONFIG_DIR — delete it to fully reset.)"
 }

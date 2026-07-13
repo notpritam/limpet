@@ -40,6 +40,7 @@ Two execution contexts, by design:
 - **Single-instance lock.** `with_lock <name>` (mkdir-based, steals if stale >2min) wraps guard and mirror so launchd + terminal runs never collide. Keep new periodic work under a lock.
 - **No module-level surprises / idempotency.** Every command must be safe to run repeatedly. `setup` detects an existing install and adopts already-symlinked folders rather than re-copying.
 - **Bash 3.2 compatible.** macOS ships bash 3.2. No associative arrays, no `mapfile`, no `${var^^}`. Expand possibly-empty arrays as `${arr[@]+"${arr[@]}"}` under `set -u`. CI/local check: `/bin/bash -n limpet`.
+- **No `cmd | grep -q` / `| head` whose exit status you use, under `set -o pipefail`.** The early-exit consumer SIGPIPEs the producer, so the pipeline returns non-zero *even on success* — racy, and worse the larger the producer's output (this bit `launchctl list | grep -q` → false "guard not loaded", and `mount | grep -q` → false "unplugged" → spurious failover). Capture first instead: `case "$(cmd)" in *pat*) …` or `[ -n "$(cmd)" ]`. `grep -q FILE` (no producer pipe) is fine. Guarded by `test/test-lint.sh`.
 - **`// ABOUTME:` header.** Keep the two ABOUTME comment lines at the top of every file.
 
 ## Driving limpet for a user (non-interactive)
@@ -65,7 +66,9 @@ Use a **real filesystem**, not mocks. The canonical test sandboxes `HOME` + a fa
 ```bash
 bash test/test-guard.sh     # symlink → unplug → offline edit → replug → merge-back/keep-both; 11 assertions
 bash test/test-env.sh       # env --shell present/absent, eval, add/rm/upsert, validation; 16 assertions
+bash test/test-update.sh    # _pick_max_semver numeric ordering (git-ls-remote fallback); 3 assertions
 bash test/test-ui.sh        # animation layer resolves child exit + stays silent off-TTY
+bash test/test-lint.sh      # forbids pipefail-unsafe `cmd | grep -q`; bash -n gate
 ```
 
 When changing guard/mirror/move logic, extend `test/test-guard.sh` with the new case and keep it green on both `/bin/bash` (3.2) and a modern bash. Do **not** test by registering the real `launchd` agent or editing the user's real shell rc — the test bypasses `setup` and writes config directly so it touches nothing outside its temp dir.

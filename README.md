@@ -29,7 +29,7 @@ A limpet is the little mollusk that clamps tight to its rock, yet detaches and r
 ~/Documents ─▶ /Volumes/X9/Documents      drive back → offline work merged in, never overwritten
 ```
 
-Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~890 lines, still one file, still zero dependencies — with a live progress UI (see the **[CLI preview](https://limpet.notpritam.in/cli.html)**) and drive-aware **build-cache offload** (`limpet env`).
+Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~930 lines, still one file, still zero dependencies — with a live progress UI (see the **[CLI preview](https://limpet.notpritam.in/cli.html)**) and drive-aware **build-cache offload** (`limpet env`).
 
 ---
 
@@ -190,7 +190,7 @@ Turn on automatic checks during `limpet setup` (or set `AUTO_UPDATE=1` in the co
 
 - **Verified copy before delete.** When moving a folder onto the drive, limpet does a `ditto` copy, then byte-verifies a manifest of every file before removing the original. If verification fails, the original is left untouched.
 - **Never overwrites.** On reconnect, a file that exists in both places is kept as `name.local-<timestamp>` — you never lose either version.
-- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~890 lines of bash you can read in one sitting.
+- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~930 lines of bash you can read in one sitting.
 - **Not a backup.** limpet keeps your data *available and resilient to unplugs* — it is **not** a substitute for Time Machine or an offsite backup. Keep one.
 
 ---

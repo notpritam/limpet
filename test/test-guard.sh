@@ -49,6 +49,16 @@ ck "conflicting copy kept-both"      'ls "$DRV/Documents"/a.txt.local-* >/dev/nu
 echo "[5] no data was lost across the whole cycle"
 ck "both versions of a.txt survive"  '[ "$(cat "$DRV/Documents/a.txt")" = hello ] && grep -rq local-version "$DRV/Documents"/a.txt.local-*'
 
+echo "[6] malformed config (DRIVE set, FOLDERS empty) must not crash the guard under set -u"
+cat > "$SB/.config/limpet/config" <<EOF
+DRIVE=$DRV
+FOLDERS=()
+MIRROR_DEST=$SB/.limpet/mirror
+AUTO_UPDATE=0
+EOF
+"$LIMPET" __guard; rc=$?
+ck "__guard exits 0 with empty FOLDERS" '[ "$rc" -eq 0 ]'
+
 echo
 printf 'RESULT: \033[32m%d passed\033[0m, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

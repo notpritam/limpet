@@ -65,6 +65,20 @@ echo "[5] invalid identifiers are rejected (config not corrupted)"
 ck "rejects bad var name"            '! "$LIMPET" env add "9bad name" foo >/dev/null 2>&1'
 ck "rejects empty path"              '! "$LIMPET" env add GOOD "" >/dev/null 2>&1'
 
+echo "[5b] hand-edited env.conf: malformed / injectable names are NEVER emitted to the rc eval"
+# env.conf is hand-editable (limpet env edit) and its output is eval'd in every shell.
+# printf (not heredoc) so the $(...) payload lands literally in the file, not run at test-setup.
+rm -f "$SB/INJECTED"
+printf 'GOCACHE = Caches/go-build\nx$(touch %s/INJECTED) = Caches/evil\nMY VAR = Caches/typo\n   # GRADLE_USER_HOME = Caches/indented\n' "$SB" > "$SB/.config/limpet/env.conf"
+OUT="$("$LIMPET" env --shell)"
+ck "valid var still emitted"         'printf "%s\n" "$OUT" | grep -q "^export GOCACHE="'
+ck "no command-substitution emitted" '! printf "%s\n" "$OUT" | grep -q "touch"'
+eval "$OUT"
+ck "eval is inert (no injection)"    '[ ! -e "$SB/INJECTED" ]'
+ck "space-in-name not emitted"       '! printf "%s\n" "$OUT" | grep -q "MY VAR"'
+ck "indented comment not a mapping"  '! printf "%s\n" "$OUT" | grep -q "GRADLE_USER_HOME"'
+ck "exactly the 1 valid export"      '[ "$(printf "%s\n" "$OUT" | grep -c "^export ")" = 1 ]'
+
 echo "[6] not-set-up / absent config → --shell is silent and succeeds (safe in rc)"
 rm -f "$SB/.config/limpet/config"
 ck "silent when not set up"          '[ -z "$("$LIMPET" env --shell 2>/dev/null)" ] && "$LIMPET" env --shell >/dev/null 2>&1'
