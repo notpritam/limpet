@@ -29,7 +29,7 @@ A limpet is the little mollusk that clamps tight to its rock, yet detaches and r
 ~/Documents ─▶ /Volumes/X9/Documents      drive back → offline work merged in, never overwritten
 ```
 
-Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~690 lines, still one file, still zero dependencies — and now with a live progress UI (see the **[CLI preview](https://limpet.notpritam.in/cli.html)**).
+Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~890 lines, still one file, still zero dependencies — with a live progress UI (see the **[CLI preview](https://limpet.notpritam.in/cli.html)**) and drive-aware **build-cache offload** (`limpet env`).
 
 ---
 
@@ -117,6 +117,7 @@ A `mkdir`-based lock means the two never collide.
 | `limpet list` | Managed folders + any ad-hoc links you've made into the drive. |
 | `limpet link <path>` | Move **any** extra file/folder onto the drive and symlink it back. |
 | `limpet unlink <path>` | Bring a symlinked path back onto the local disk. |
+| `limpet env` | Offload build-cache env-vars (Go, Gradle, npm, Android) to the drive. `env add VAR path` · `env rm VAR` · `env edit`. |
 | `limpet doctor` | Health-check and offer fixes (agent loaded? drive renamed?). |
 | `limpet sync` | Run the failover/failback + mirror right now. |
 | `limpet update` | Update limpet to the latest release (`--check` only checks). |
@@ -154,6 +155,24 @@ limpet list                  # see everything that's linked
 
 Already symlinked things by hand? `limpet setup` and `limpet link` **detect existing links and adopt them** instead of re-copying.
 
+### Offloading build caches
+
+Big, regenerable caches — Go, Gradle, npm, the Android SDK — belong on the drive too, but as
+**environment variables**, not symlinks (that's how those tools expect to find them, and it fails over
+cleanly). `limpet env` manages them for you:
+
+```bash
+limpet env add GOCACHE          Caches/go-build
+limpet env add GRADLE_USER_HOME Caches/gradle
+limpet env add NPM_CONFIG_CACHE Caches/npm
+limpet env                      # show what's mapped + whether it's active
+```
+
+When the drive is **connected**, each variable points at `DRIVE/<path>`. When it's **unplugged**, limpet
+leaves the variable unset so the tool falls back to its normal internal-disk cache — your builds keep
+working offline instead of erroring on a cache that isn't there. The mapping is applied by a tiny hook in
+your shell rc (added at `setup`), so a new shell always reflects the current drive state.
+
 ---
 
 ## Self-update
@@ -171,7 +190,7 @@ Turn on automatic checks during `limpet setup` (or set `AUTO_UPDATE=1` in the co
 
 - **Verified copy before delete.** When moving a folder onto the drive, limpet does a `ditto` copy, then byte-verifies a manifest of every file before removing the original. If verification fails, the original is left untouched.
 - **Never overwrites.** On reconnect, a file that exists in both places is kept as `name.local-<timestamp>` — you never lose either version.
-- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~690 lines of bash you can read in one sitting.
+- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~890 lines of bash you can read in one sitting.
 - **Not a backup.** limpet keeps your data *available and resilient to unplugs* — it is **not** a substitute for Time Machine or an offsite backup. Keep one.
 
 ---
@@ -194,7 +213,7 @@ No. The guard + terminal hook handle everything. Unplug, replug, reboot with the
 
 ## Caveats (the honest list)
 
-- **Eject cleanly.** If a drive is yanked without ejecting, macOS may remount it as `"X9 1"`. limpet keys off the exact mount path, so `limpet doctor` will flag this — eject and replug to restore the name.
+- **Eject cleanly.** If a drive is yanked without ejecting, macOS may remount it as `"X9 1"` or leave a hollow empty `/Volumes/X9` mountpoint behind. limpet checks the live mount table (not just "does the folder exist"), so it treats a hollow mountpoint as *unplugged* and fails over instead of pointing your apps at an empty tree — and `limpet doctor` flags both cases with a fix.
 - **The drive still holds your data.** Failover keeps you *working*; it doesn't conjure the files that live on an absent drive. Nominate critical paths for the offline mirror if you need them readable while unplugged.
 - **macOS only.** It relies on `launchd`, `ditto`, and APFS behavior.
 

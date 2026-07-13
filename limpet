@@ -3,12 +3,13 @@
 # ABOUTME: Single-file, pure-bash CLI. No kernel extensions, no daemons, no network. See `limpet help`.
 set -uo pipefail
 
-LIMPET_VERSION="0.2.0"
+LIMPET_VERSION="0.3.0"
 
 # ----------------------------------------------------------------------------- paths
 CONFIG_DIR="${LIMPET_CONFIG_DIR:-$HOME/.config/limpet}"
 CONFIG="$CONFIG_DIR/config"
 MIRROR_LIST="$CONFIG_DIR/mirror-paths.txt"
+ENV_CONF="$CONFIG_DIR/env.conf"
 STATE_DIR="${LIMPET_STATE_DIR:-$HOME/.local/state/limpet}"
 LOG="$STATE_DIR/limpet.log"
 LABEL="com.limpet.guard"
@@ -200,6 +201,7 @@ DRIVE=""
 FOLDERS=()
 MIRROR_DEST="$HOME/.limpet/mirror"
 AUTO_UPDATE=0
+GUARD_INTERVAL=0   # 0 = event-driven only (WatchPaths). >0 = also poll every N seconds (belt-and-suspenders).
 
 load_config() { [ -f "$CONFIG" ] && . "$CONFIG"; }
 require_config() {
@@ -214,15 +216,48 @@ save_config() {
     printf 'FOLDERS=('; for f in "${FOLDERS[@]}"; do printf '%q ' "$f"; done; printf ')\n'
     printf 'MIRROR_DEST=%q\n' "$MIRROR_DEST"
     printf 'AUTO_UPDATE=%q\n' "$AUTO_UPDATE"
+    printf 'GUARD_INTERVAL=%q\n' "$GUARD_INTERVAL"
   } > "$CONFIG"
   [ -f "$MIRROR_LIST" ] || cat > "$MIRROR_LIST" <<EOF
 # limpet — paths under the drive to keep mirrored to a local fallback copy,
 # so important files stay readable when the drive is unplugged.
 # One path per line, RELATIVE to the drive root. '#' = comment.
 EOF
+  [ -f "$ENV_CONF" ] || seed_env_conf
 }
 
-drive_present() { [ -n "$DRIVE" ] && [ -d "$DRIVE" ]; }
+seed_env_conf() {
+  mkdir -p "$CONFIG_DIR"
+  cat > "$ENV_CONF" <<'EOF'
+# limpet env — environment variables to point at the drive when it is connected.
+#   VAR = relative/path/under/drive   → export VAR="$DRIVE/<path>" while the drive is present.
+# When the drive is unplugged the variable is UNSET, so tools fall back to their internal-disk defaults.
+# '#' = comment. Edits take effect in the next shell. Manage with:
+#   limpet env              show current mappings + state
+#   limpet env add VAR path add/replace a mapping
+#   limpet env rm VAR       remove a mapping
+#
+# Common build caches — uncomment the ones you use (adjust paths to your drive layout):
+# GOCACHE          = Caches/go-build
+# GOMODCACHE       = Caches/go-mod
+# GRADLE_USER_HOME = Caches/gradle
+# NPM_CONFIG_CACHE = Caches/npm
+# ANDROID_HOME     = Android/sdk
+# ANDROID_SDK_ROOT = Android/sdk
+EOF
+}
+
+drive_present() {
+  # A drive is "present" only if it's a REAL, currently-mounted volume — not a hollow
+  # /Volumes/<name> mountpoint left behind by an unclean eject (which still passes `[ -d ]`
+  # but has no files, silently breaking reads/dev-servers). For real /Volumes/* drives we
+  # require a live `mount` entry; a non-/Volumes path (the test harness) falls back to `[ -d ]`.
+  [ -n "$DRIVE" ] && [ -d "$DRIVE" ] || return 1
+  case "$DRIVE" in
+    /Volumes/*) mount 2>/dev/null | grep -qF " on $DRIVE (" ;;
+    *)          return 0 ;;
+  esac
+}
 
 # ----------------------------------------------------------------------------- lock
 with_lock() { # with_lock <name> <command...>
@@ -333,12 +368,108 @@ run_mirror() {
   logln "[mirror] done ($n mirrored)"
 }
 
+# ----------------------------------------------------------------------------- env offload (build caches)
+# Point env-vars (GOCACHE, GRADLE_USER_HOME, …) at the drive when connected; unset when unplugged so
+# tools fall back to internal-disk defaults. Config is the source of truth; the shell rc block just runs
+# `limpet env --shell` at startup. This path must stay side-effect-free and fast — it runs in every shell.
+_trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
+_env_valid_name() { case "$1" in [A-Za-z_]*) [ -z "${1//[A-Za-z0-9_]/}" ];; *) return 1;; esac; }
+
+# _env_each <callback>: invoke `callback VAR RELPATH` for every active (uncommented) mapping in env.conf.
+_env_each() {
+  local cb="$1"; [ -f "$ENV_CONF" ] || return 0
+  local line var val
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"; case "$line" in ''|\#*) continue;; esac
+    case "$line" in *=*) ;; *) continue;; esac
+    var="$(_trim "${line%%=*}")"; val="$(_trim "${line#*=}")"
+    [ -n "$var" ] && [ -n "$val" ] && "$cb" "$var" "$val"
+  done < "$ENV_CONF"
+}
+_env_emit_export() { printf 'export %s=%q\n' "$1" "$DRIVE/$2"; }
+_env_emit_unset()  { printf 'unset %s\n' "$1"; }
+__env_n=0; _env_bump() { __env_n=$(( __env_n + 1 )); }
+_env_has_active() { __env_n=0; _env_each _env_bump; [ "$__env_n" -gt 0 ]; }
+
+# machine output for `eval` in the shell rc — silent unless there is something to say
+env_shell() {
+  load_config
+  [ -n "$DRIVE" ] || return 0
+  [ -f "$ENV_CONF" ] || return 0
+  if drive_present; then _env_each _env_emit_export; else _env_each _env_emit_unset; fi
+}
+
+_env_show_row() { # used by `limpet env` and `limpet status`
+  local var="$1" tgt="$DRIVE/$2"
+  if drive_present && [ -e "$tgt" ]; then printf '  %s✓%s %-16s → %s\n' "$GRN" "$R" "$var" "$tgt"
+  elif drive_present;               then printf '  %s•%s %-16s → %s %s(not created on drive yet)%s\n' "$BLU" "$R" "$var" "$tgt" "$DIM" "$R"
+  else                                   printf '  %s✗%s %-16s → %s %s(drive unplugged — unset)%s\n' "$YEL" "$R" "$var" "$tgt" "$DIM" "$R"; fi
+}
+__env_jfirst=1
+_env_json_row() {
+  local active=false; drive_present && [ -e "$DRIVE/$2" ] && active=true
+  [ "$__env_jfirst" = 1 ] || printf ','; __env_jfirst=0
+  printf '{"name":"%s","target":"%s","active":%s}' "$1" "$DRIVE/$2" "$active"
+}
+
+_env_add() {
+  local var="${1:-}" path="${2:-}"
+  _env_valid_name "$var" || die "invalid env var name: '${var}'  (letters, digits, underscore; not starting with a digit)"
+  [ -n "$path" ] || die "usage: limpet env add VAR relative/path-under-drive"
+  load_config; mkdir -p "$CONFIG_DIR"; [ -f "$ENV_CONF" ] || seed_env_conf
+  local tmp; tmp="$(mktemp)"
+  awk -v v="$var" '{ s=$0; sub(/^[ \t]+/,"",s)
+      if (s ~ /^#/ || s=="") { print; next }
+      key=s; sub(/[ \t]*=.*/,"",key); if (key==v) next; print }' "$ENV_CONF" > "$tmp"
+  printf '%-16s = %s\n' "$var" "$path" >> "$tmp"
+  mv "$tmp" "$ENV_CONF"
+  ok "env: ${B}$var${R} → ${DIM}drive:${R}$path  ${DIM}(open a new shell to apply)${R}"
+}
+_env_rm() {
+  local var="${1:-}"; [ -n "$var" ] || die "usage: limpet env rm VAR"
+  [ -f "$ENV_CONF" ] || return 0
+  local tmp; tmp="$(mktemp)"
+  awk -v v="$var" '{ s=$0; sub(/^[ \t]+/,"",s)
+      if (s ~ /^#/ || s=="") { print; next }
+      key=s; sub(/[ \t]*=.*/,"",key); if (key==v) next; print }' "$ENV_CONF" > "$tmp"
+  mv "$tmp" "$ENV_CONF"
+  ok "env: removed ${B}$var${R}  ${DIM}(open a new shell to apply)${R}"
+}
+_env_show() {
+  load_config
+  [ -n "$DRIVE" ] || die "not set up — run: ${B}limpet setup${R}"
+  title "env offload → $DRIVE"
+  say "drive:   $( drive_present && printf '%sconnected%s' "$GRN" "$R" || printf '%sUNPLUGGED%s' "$YEL" "$R" )"
+  hr
+  if [ ! -f "$ENV_CONF" ] || ! _env_has_active; then
+    say "  ${DIM}no active mappings — add one, e.g.:${R}  ${B}limpet env add GOCACHE Caches/go-build${R}"
+  else
+    _env_each _env_show_row
+    grep -q "$ENV_BEGIN" "$HOME/.zshrc" 2>/dev/null || grep -q "$ENV_BEGIN" "$HOME/.bashrc" 2>/dev/null \
+      || { hr; warn "shell hook missing — run ${B}limpet setup${R} to (re)install it, or vars won't apply in new shells"; }
+  fi
+}
+cmd_env() {
+  case "${1:-show}" in
+    --shell)     env_shell;;
+    add)         shift; _env_add "$@";;
+    rm|remove)   shift; _env_rm "$@";;
+    edit)        load_config; mkdir -p "$CONFIG_DIR"; [ -f "$ENV_CONF" ] || seed_env_conf; "${EDITOR:-nano}" "$ENV_CONF";;
+    show|"")     _env_show;;
+    *)           die "usage: limpet env [--shell | add VAR path | rm VAR | edit]";;
+  esac
+}
+
 # ----------------------------------------------------------------------------- agent + shell hook
 HOOK_BEGIN="# >>> limpet self-heal >>>"
 HOOK_END="# <<< limpet self-heal <<<"
+ENV_BEGIN="# >>> limpet env >>>"
+ENV_END="# <<< limpet env <<<"
 
 install_agent() {
   mkdir -p "$(dirname "$PLIST")"
+  local _interval_xml=""
+  [ "${GUARD_INTERVAL:-0}" -gt 0 ] 2>/dev/null && _interval_xml="  <key>StartInterval</key><integer>$GUARD_INTERVAL</integer>"$'\n'
   cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -347,7 +478,7 @@ install_agent() {
   <key>ProgramArguments</key><array><string>$SELF</string><string>__guard</string></array>
   <key>RunAtLoad</key><true/>
   <key>WatchPaths</key><array><string>/Volumes</string></array>
-  <key>StandardOutPath</key><string>$STATE_DIR/agent.out</string>
+${_interval_xml}  <key>StandardOutPath</key><string>$STATE_DIR/agent.out</string>
   <key>StandardErrorPath</key><string>$STATE_DIR/agent.err</string>
 </dict></plist>
 EOF
@@ -364,8 +495,8 @@ shell_rc() { # echo the rc files that exist
 }
 install_hook() {
   local rc; for rc in $(shell_rc); do
-    grep -q "$HOOK_BEGIN" "$rc" 2>/dev/null && continue
-    cat >> "$rc" <<EOF
+    if ! grep -q "$HOOK_BEGIN" "$rc" 2>/dev/null; then
+      cat >> "$rc" <<EOF
 
 $HOOK_BEGIN
 # Runs the guard + mirror from your terminal (which has disk access), throttled.
@@ -378,17 +509,31 @@ if [ -n "\${PS1:-}" ] || [[ \$- == *i* ]]; then ( \
 fi
 $HOOK_END
 EOF
-    ok "added self-heal hook to ${DIM}$rc${R}"
+      ok "added self-heal hook to ${DIM}$rc${R}"
+    fi
+    if ! grep -q "$ENV_BEGIN" "$rc" 2>/dev/null; then
+      cat >> "$rc" <<EOF
+
+$ENV_BEGIN
+# Point build-cache env-vars at the drive when connected (foreground: sets vars in THIS shell).
+[ -x "$SELF" ] && eval "\$("$SELF" env --shell 2>/dev/null)"
+$ENV_END
+EOF
+      ok "added env hook to ${DIM}$rc${R}"
+    fi
   done
+}
+_strip_block() { # <rc> <begin> <end> <label> — remove one marked block, in place
+  local rc="$1" b="$2" e="$3" label="$4"
+  grep -q "$b" "$rc" 2>/dev/null || return 0
+  awk -v b="$b" -v e="$e" '$0==b{skip=1} skip{ if($0==e) skip=0; next } {print}' "$rc" > "$rc.limpet.tmp" && mv "$rc.limpet.tmp" "$rc"
+  ok "removed $label hook from ${DIM}$rc${R}"
 }
 uninstall_hook() {
   local rc; for rc in $(shell_rc); do
     [ -f "$rc" ] || continue
-    grep -q "$HOOK_BEGIN" "$rc" || continue
-    # delete the marked block (portable, no in-place sed -i differences)
-    awk -v b="$HOOK_BEGIN" -v e="$HOOK_END" '
-      $0==b{skip=1} skip{ if($0==e) skip=0; next } {print}' "$rc" > "$rc.limpet.tmp" && mv "$rc.limpet.tmp" "$rc"
-    ok "removed self-heal hook from ${DIM}$rc${R}"
+    _strip_block "$rc" "$HOOK_BEGIN" "$HOOK_END" "self-heal"
+    _strip_block "$rc" "$ENV_BEGIN" "$ENV_END" "env"
   done
 }
 
@@ -543,6 +688,7 @@ cmd_setup() {
   ok "${B}Setup complete.${R}"
   say "  • Background guard: ${GRN}active${R} (reacts to plug/unplug instantly)"
   say "  • Terminal hook: added (merges offline work back + mirrors). Open a new terminal to activate."
+  say "  • Offload build caches too: ${B}limpet env add GOCACHE Caches/go-build${R} ${DIM}(see: limpet env)${R}"
   say "  • Check anytime with ${B}limpet status${R}, or ${B}limpet doctor${R}."
 }
 
@@ -561,7 +707,9 @@ cmd_status() {
       [ "$first" = 1 ] || printf ','; first=0
       printf '{"name":"%s","state":"%s","target":"%s"}' "$f" "$st" "$t"
     done
-    printf ']}\n'; return
+    printf ']'
+    printf ',"env":['; __env_jfirst=1; _env_each _env_json_row; printf ']'
+    printf '}\n'; return
   fi
   title "limpet status"
   say "drive:   ${B}$DRIVE${R}  $( [ "$present" = true ] && printf '%sconnected%s' "$GRN" "$R" || printf '%sUNPLUGGED%s' "$YEL" "$R" )"
@@ -573,6 +721,10 @@ cmd_status() {
     elif [ -d "$HOME/$f" ]; then printf '  %s•%s ~/%-10s %s(local folder — failover mode)%s\n' "$BLU" "$R" "$f" "$DIM" "$R"
     else printf '  %s?%s ~/%-10s %s(missing)%s\n' "$YEL" "$R" "$f" "$DIM" "$R"; fi
   done
+  if [ -f "$ENV_CONF" ] && _env_has_active; then
+    hr; say "${B}env offload${R} ${DIM}(build caches)${R}"
+    _env_each _env_show_row
+  fi
 }
 
 cmd_watch() {
@@ -608,8 +760,22 @@ cmd_doctor() {
   title "limpet doctor"
   local issues=0
   drive_present && ok "drive mounted: $DRIVE" || { warn "drive not mounted ($DRIVE) — folders are in failover mode"; }
+  # hollow mountpoint: the dir exists but no volume is mounted there — this is the classic
+  # "SSD unplugged uncleanly → apps/dev-servers see an empty tree and can't load files" trap.
+  if [ -d "$DRIVE" ] && ! drive_present; then
+    warn "'$DRIVE' exists but nothing is mounted there (hollow mountpoint)."
+    warn "That silently breaks reads/serves. Failover has switched folders to local; remove the empty"
+    warn "dir (${DIM}sudo rmdir '$DRIVE'${R}) or eject cleanly, then replug so the real volume returns."
+    issues=$((issues+1))
+  fi
   launchctl list 2>/dev/null | grep -q "$LABEL" && ok "guard agent loaded" || { warn "guard agent NOT loaded"; issues=$((issues+1)); confirm "reinstall the agent?" && { install_agent; ok "reinstalled"; }; }
+  [ "${GUARD_INTERVAL:-0}" -gt 0 ] 2>/dev/null && ok "periodic reconcile: every ${GUARD_INTERVAL}s (missed-event safety net)"
   [ -x "$SELF" ] && ok "cli present: $SELF" || warn "cli path looks off: $SELF"
+  # env hook present when there are active env mappings
+  if [ -f "$ENV_CONF" ] && _env_has_active; then
+    if grep -q "$ENV_BEGIN" "$HOME/.zshrc" 2>/dev/null || grep -q "$ENV_BEGIN" "$HOME/.bashrc" 2>/dev/null; then ok "env hook present"
+    else warn "env mappings exist but the shell hook is missing (vars won't apply in new shells)"; issues=$((issues+1)); confirm "reinstall the shell hook?" && { install_hook; ok "reinstalled"; }; fi
+  fi
   # drive-name drift gotcha (e.g. "/Volumes/X9 1")
   if ! drive_present && [ -n "$(ls -d "${DRIVE} "* 2>/dev/null)" ]; then
     warn "Your drive may have remounted under a different name (e.g. '${DRIVE} 1')."
@@ -676,6 +842,8 @@ ${B}COMMANDS${R}
   ${CYN}link${R} <path>      Move any extra file/folder onto the drive and symlink it back.
   ${CYN}unlink${R} <path>    Bring a symlinked path back onto the local disk.
   ${CYN}list${R}             List managed folders + any ad-hoc links into the drive.
+  ${CYN}env${R}              Offload build-cache env-vars (GOCACHE, GRADLE_USER_HOME, …) to the drive.
+                   ${DIM}env add VAR path · env rm VAR · env edit · env (show)${R}
   ${CYN}update${R}           Update limpet to the latest release (--check just checks).
   ${CYN}uninstall${R}        Remove the guard + hook (optionally restore folders to local).
   ${CYN}help${R} | ${CYN}version${R}   This help / version.
@@ -709,6 +877,7 @@ main() {
     link)         cmd_link "$@";;
     unlink)       cmd_unlink "$@";;
     list)         cmd_list;;
+    env)          cmd_env "$@";;
     update)       cmd_update "$@";;
     uninstall)    cmd_uninstall;;
     __guard)      with_lock guard run_guard;;     # internal: called by launchd + hook

@@ -8,6 +8,10 @@
   Why WatchPaths /Volumes: macOS fires this agent whenever ANY volume mounts or
   unmounts, so limpet reacts to plug/unplug within a second. The agent only stats
   the mountpoint and does local symlink swaps, so it needs no Full Disk Access.
+
+  Optional StartInterval: if GUARD_INTERVAL > 0 in ~/.config/limpet/config, limpet
+  also adds <key>StartInterval</key><integer>N</integer> so a transition missed
+  while the Mac was asleep still self-corrects on the next tick. Off by default.
 -->
 <plist version="1.0"><dict>
   <key>Label</key><string>com.limpet.guard</string>
@@ -15,6 +19,7 @@
     <array><string>{{LIMPET_PATH}}</string><string>__guard</string></array>
   <key>RunAtLoad</key><true/>
   <key>WatchPaths</key><array><string>/Volumes</string></array>
+  <!-- <key>StartInterval</key><integer>300</integer>   (added only when GUARD_INTERVAL>0) -->
   <key>StandardOutPath</key><string>{{STATE_DIR}}/agent.out</string>
   <key>StandardErrorPath</key><string>{{STATE_DIR}}/agent.err</string>
 </dict></plist>
