@@ -3,13 +3,15 @@
 # ABOUTME: Single-file, pure-bash CLI. No kernel extensions, no daemons, no network. See `limpet help`.
 set -uo pipefail
 
-LIMPET_VERSION="0.3.2"
+LIMPET_VERSION="0.4.0"
 
 # ----------------------------------------------------------------------------- paths
 CONFIG_DIR="${LIMPET_CONFIG_DIR:-$HOME/.config/limpet}"
 CONFIG="$CONFIG_DIR/config"
 MIRROR_LIST="$CONFIG_DIR/mirror-paths.txt"
 ENV_CONF="$CONFIG_DIR/env.conf"
+ORGANIZE_CONF="$CONFIG_DIR/organize.conf"
+ORGANIZE_RULES="$CONFIG_DIR/organize-rules.conf"
 STATE_DIR="${LIMPET_STATE_DIR:-$HOME/.local/state/limpet}"
 LOG="$STATE_DIR/limpet.log"
 LABEL="com.limpet.guard"
@@ -532,7 +534,7 @@ if [ -n "\${PS1:-}" ] || [[ \$- == *i* ]]; then ( \
   _ls="$STATE_DIR"; mkdir -p "\$_ls" 2>/dev/null; _now=\$(date +%s); \
   if [ \$(( _now - \$(cat "\$_ls/guard.stamp" 2>/dev/null || echo 0) )) -ge 60 ]; then echo "\$_now" > "\$_ls/guard.stamp"; "$SELF" __guard >/dev/null 2>&1; fi; \
   if [ \$(( _now - \$(cat "\$_ls/mirror.stamp" 2>/dev/null || echo 0) )) -ge 3600 ]; then echo "\$_now" > "\$_ls/mirror.stamp"; "$SELF" __mirror >/dev/null 2>&1; fi; \
-  "$SELF" __autoupdate >/dev/null 2>&1 \
+  "$SELF" __autoupdate >/dev/null 2>&1; "$SELF" __organize >/dev/null 2>&1 \
   ) &
 fi
 $HOOK_END
@@ -865,6 +867,353 @@ cmd_uninstall() {
   ok "limpet uninstalled. (config left at $CONFIG_DIR — delete it to fully reset.)"
 }
 
+# ----------------------------------------------------------------------------- organize (opt-in file sorter)
+# Off by default. Sorts top-level files in watched folders into destinations by ordered ext→dest rules,
+# only when a file is "safe" per the chosen mode. Keep-both on clash; every move logged for undo.
+ORG_LOG="$STATE_DIR/organize.log"
+ORGANIZE_ENABLED=0
+ORGANIZE_MODE="aged-idle"      # quick | aged | aged-idle
+ORGANIZE_IDLE_DAYS=7
+ORGANIZE_QUICK_MINUTES=30
+ORGANIZE_WATCH=(Downloads)
+ORGANIZE_BY_TYPE=1
+ORGANIZE_DEST_ROOT=""
+ORGANIZE_SCHEDULE="daily"      # daily | hourly | manual
+
+load_organize() { [ -f "$ORGANIZE_CONF" ] && . "$ORGANIZE_CONF"; return 0; }
+save_organize() {
+  mkdir -p "$CONFIG_DIR"
+  {
+    echo "# limpet organize — manage via \`limpet organize\` commands, or edit by hand."
+    printf 'ORGANIZE_ENABLED=%q\n' "$ORGANIZE_ENABLED"
+    printf 'ORGANIZE_MODE=%q\n' "$ORGANIZE_MODE"
+    printf 'ORGANIZE_IDLE_DAYS=%q\n' "$ORGANIZE_IDLE_DAYS"
+    printf 'ORGANIZE_QUICK_MINUTES=%q\n' "$ORGANIZE_QUICK_MINUTES"
+    printf 'ORGANIZE_WATCH=('; for _w in ${ORGANIZE_WATCH[@]+"${ORGANIZE_WATCH[@]}"}; do printf '%q ' "$_w"; done; printf ')\n'
+    printf 'ORGANIZE_BY_TYPE=%q\n' "$ORGANIZE_BY_TYPE"
+    printf 'ORGANIZE_DEST_ROOT=%q\n' "$ORGANIZE_DEST_ROOT"
+    printf 'ORGANIZE_SCHEDULE=%q\n' "$ORGANIZE_SCHEDULE"
+  } > "$ORGANIZE_CONF"
+  [ -f "$ORGANIZE_RULES" ] || seed_organize_rules
+}
+seed_organize_rules() {
+  mkdir -p "$CONFIG_DIR"
+  cat > "$ORGANIZE_RULES" <<'EOF'
+# limpet organize rules — ORDERED, first match wins.   Format:  Category | ext,ext,... | destination
+#   destination blank + ORGANIZE_BY_TYPE=1  →  <DEST_ROOT-or-watched-folder>/<Category>/  (auto by type)
+#   destination set (absolute or ~/path)    →  that type goes exactly there.
+# Reorder/edit freely (or use: limpet organize rule add|rm|list|edit).
+Images       | jpg,jpeg,png,gif,heic,webp,svg,bmp,tiff,ico |
+Documents    | pdf,doc,docx,txt,md,rtf,odt,pages            |
+Spreadsheets | xls,xlsx,csv,numbers                         |
+Presentations| ppt,pptx,key                                 |
+Video        | mp4,mov,mkv,avi,webm,m4v                     |
+Audio        | mp3,wav,flac,aac,m4a,ogg                     |
+Archives     | zip,tar,gz,tgz,bz2,rar,7z                    |
+Installers   | dmg,pkg                                      |
+Code         | sh,py,js,ts,go,rs,c,h,cpp,json,yaml,yml      |
+EOF
+}
+
+_org_valid_name() { case "$1" in [A-Za-z0-9]*) [ -z "${1//[A-Za-z0-9_-]/}" ];; *) return 1;; esac; }
+# _org_each_rule <cb>: cb Category "ext,ext" Destination  (first-match ordering is the caller's job)
+_org_each_rule() {
+  local cb="$1"; [ -f "$ORGANIZE_RULES" ] || return 0
+  local line cat rest exts dest
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$(_trim "$line")" in ''|\#*) continue;; esac
+    case "$line" in *\|*) ;; *) continue;; esac
+    cat="$(_trim "${line%%|*}")"; rest="${line#*|}"; exts="$(_trim "${rest%%|*}")"
+    case "$rest" in *\|*) dest="$(_trim "${rest#*|}")";; *) dest="";; esac
+    [ -n "$cat" ] && [ -n "$exts" ] && _org_valid_name "$cat" && "$cb" "$cat" "$exts" "$dest"
+  done < "$ORGANIZE_RULES"
+}
+__org_n=0; _org_bump() { __org_n=$(( __org_n + 1 )); }
+_org_rule_count() { __org_n=0; _org_each_rule _org_bump; printf '%s' "$__org_n"; }
+
+_org_ext() { local b="${1##*/}"; case "$b" in *.*) printf '%s' "${b##*.}" | tr 'A-Z' 'a-z';; *) printf '';; esac; }
+_org_expand() { case "$1" in "~/"*) printf '%s/%s' "$HOME" "${1#~/}";; "~") printf '%s' "$HOME";; *) printf '%s' "$1";; esac; }
+
+# is a top-level file safe to move under the current mode?
+_org_eligible() {
+  local f="$1" base="${1##*/}"
+  [ -f "$f" ] || return 1
+  [ -L "$f" ] && return 1
+  case "$base" in .*) return 1;; *.crdownload|*.part|*.download|*.tmp|*.partial|*.opdownload) return 1;; esac
+  local now mt age; now="$(date +%s)"; mt="$(stat -f %m "$f" 2>/dev/null)"; [ -n "$mt" ] || mt="$now"; age=$(( now - mt ))
+  case "$ORGANIZE_MODE" in
+    quick)          [ "$age" -ge $(( ${ORGANIZE_QUICK_MINUTES:-30} * 60 )) ] || return 1 ;;
+    aged|aged-idle) [ "$age" -ge $(( ${ORGANIZE_IDLE_DAYS:-7} * 86400 )) ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  if [ "$ORGANIZE_MODE" = "aged-idle" ] && command -v lsof >/dev/null 2>&1; then
+    lsof -- "$f" >/dev/null 2>&1 && return 1   # open by a process → not safe
+  fi
+  return 0
+}
+
+__org_hit_cat=""; __org_hit_dest=""; __org_target_ext=""
+_org_matchcb() {
+  [ -n "$__org_hit_cat" ] && return 0
+  local cat="$1" exts="$2" dest="$3" e
+  local IFS=','
+  for e in $exts; do
+    case "$(printf '%s' "$e" | tr -d ' ' | tr 'A-Z' 'a-z')" in
+      "$__org_target_ext") __org_hit_cat="$cat"; __org_hit_dest="$dest"; return 0 ;;
+    esac
+  done
+}
+_org_match() {  # <file> → sets __org_hit_cat/__org_hit_dest; 0 if a rule matched
+  __org_target_ext="$(_org_ext "$1")"; __org_hit_cat=""; __org_hit_dest=""
+  [ -n "$__org_target_ext" ] || return 1
+  _org_each_rule _org_matchcb
+  [ -n "$__org_hit_cat" ]
+}
+_org_dest_for() {  # <cat> <rule-dest> <watched-abs> → prints dest dir, or empty to skip
+  local cat="$1" dest="$2" watch="$3" root
+  if [ -n "$dest" ]; then printf '%s' "$(_org_expand "$dest")"
+  elif [ "${ORGANIZE_BY_TYPE:-1}" = 1 ]; then
+    root="$(_org_expand "${ORGANIZE_DEST_ROOT:-$watch}")"; printf '%s/%s' "$root" "$cat"
+  fi
+}
+_org_move() {  # <src> <dstdir> ; keep-both, append to move log under $RUNID
+  local src="$1" dstdir="$2" base="${1##*/}" tgt stamp
+  mkdir -p "$dstdir" 2>/dev/null || return 1
+  tgt="$dstdir/$base"
+  if [ -e "$tgt" ]; then stamp="$(date +%Y%m%d-%H%M%S)"; case "$base" in *.*) tgt="$dstdir/${base%.*}.$stamp.${base##*.}";; *) tgt="$dstdir/$base.$stamp";; esac; fi
+  mv "$src" "$tgt" 2>/dev/null || return 1
+  mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s\t%s\t%s\n' "$RUNID" "$src" "$tgt" >> "$ORG_LOG"
+}
+
+# per-(category,dest) tally for the grouped report
+_ORG_TCAT=(); _ORG_TDEST=(); _ORG_TCNT=()
+_org_tally() {
+  local i=0
+  while [ "$i" -lt "${#_ORG_TCAT[@]}" ]; do
+    if [ "${_ORG_TCAT[$i]}" = "$1" ] && [ "${_ORG_TDEST[$i]}" = "$2" ]; then _ORG_TCNT[$i]=$(( ${_ORG_TCNT[$i]} + 1 )); return 0; fi
+    i=$(( i + 1 ))
+  done
+  _ORG_TCAT+=("$1"); _ORG_TDEST+=("$2"); _ORG_TCNT+=(1)
+}
+_org_report() {  # <action> <moved> <skipped> <unsorted>
+  local action="$1" moved="$2" skipped="$3" unsorted="$4" i=0
+  [ "$action" = run ] && title "organize — moved  ${DIM}(mode: $ORGANIZE_MODE)${R}" || title "organize — preview  ${DIM}(mode: $ORGANIZE_MODE)${R}"
+  if [ "${#_ORG_TCAT[@]}" -eq 0 ]; then say "  ${DIM}nothing to organize${R}"
+  else
+    while [ "$i" -lt "${#_ORG_TCAT[@]}" ]; do
+      printf '  %s→%s %s%-13s%s %s%s%s  %s%d files%s\n' "$CYN" "$R" "$B" "${_ORG_TCAT[$i]}" "$R" "$DIM" "${_ORG_TDEST[$i]/#$HOME/~}" "$R" "$GRN" "${_ORG_TCNT[$i]}" "$R"
+      i=$(( i + 1 ))
+    done
+  fi
+  hr
+  [ "$action" = run ] && say "  ${B}moved $moved${R} · skipped $skipped · unsorted $unsorted" || say "  ${B}would move $moved${R} · skipped $skipped · unsorted $unsorted"
+  if [ "$action" != run ] && [ "$moved" -gt 0 ]; then say "  ${DIM}run it:${R} ${B}limpet organize run${R}   ${DIM}undo after:${R} ${B}limpet organize undo${R}"; fi
+  return 0
+}
+run_organize() {  # <preview|run>
+  local action="${1:-preview}"
+  load_config; load_organize
+  RUNID="$(date +%s)"
+  _ORG_TCAT=(); _ORG_TDEST=(); _ORG_TCNT=()
+  local watch abswatch f dstdir moved=0 skipped=0 unsorted=0
+  for watch in ${ORGANIZE_WATCH[@]+"${ORGANIZE_WATCH[@]}"}; do
+    case "$watch" in /*) abswatch="$watch";; "~/"*) abswatch="$HOME/${watch#~/}";; *) abswatch="$HOME/$watch";; esac
+    if [ ! -d "$abswatch" ]; then logln "[organize] skip missing/unplugged: $abswatch"; continue; fi
+    for f in "$abswatch"/*; do
+      [ -e "$f" ] || continue                     # empty dir → literal glob → skip
+      [ -f "$f" ] || continue                     # top-level files only (no recurse)
+      if ! _org_eligible "$f"; then skipped=$(( skipped + 1 )); continue; fi
+      if ! _org_match "$f"; then unsorted=$(( unsorted + 1 )); continue; fi
+      dstdir="$(_org_dest_for "$__org_hit_cat" "$__org_hit_dest" "$abswatch")"
+      [ -n "$dstdir" ] || { unsorted=$(( unsorted + 1 )); continue; }
+      case "$f" in "$dstdir"/*) continue;; esac   # already in its destination
+      if [ "$action" = run ]; then
+        _org_move "$f" "$dstdir" && { _org_tally "$__org_hit_cat" "$dstdir"; moved=$(( moved + 1 )); } || skipped=$(( skipped + 1 ))
+      else
+        _org_tally "$__org_hit_cat" "$dstdir"; moved=$(( moved + 1 ))
+      fi
+    done
+  done
+  logln "[organize] $action: moved=$moved skipped=$skipped unsorted=$unsorted"
+  _org_report "$action" "$moved" "$skipped" "$unsorted"
+}
+run_organize_auto() {  # internal: called by the hook; gated on enabled + schedule throttle
+  load_organize
+  [ "${ORGANIZE_ENABLED:-0}" = 1 ] || return 0
+  local interval=86400 now stamp="$STATE_DIR/organize.stamp"
+  case "${ORGANIZE_SCHEDULE:-daily}" in manual) return 0;; hourly) interval=3600;; *) interval=86400;; esac
+  mkdir -p "$STATE_DIR" 2>/dev/null; now="$(date +%s)"
+  [ $(( now - $(cat "$stamp" 2>/dev/null || echo 0) )) -ge "$interval" ] || return 0
+  echo "$now" > "$stamp"
+  run_organize run >/dev/null 2>&1
+}
+_org_run_confirmed() {
+  load_organize
+  [ "$ASSUME_YES" = 1 ] || confirm "organize now — move eligible files?" || { say "aborted."; return 0; }
+  run_organize run
+}
+cmd_organize_undo() {
+  [ -f "$ORG_LOG" ] || { info "nothing to undo."; return 0; }
+  local last; last="$(awk -F'\t' 'NF>=3{r=$1} END{print r}' "$ORG_LOG")"
+  [ -n "$last" ] || { info "nothing to undo."; return 0; }
+  [ "$ASSUME_YES" = 1 ] || confirm "undo the last organize run (move files back)?" || return 0
+  local tmp restored=0 src dst sdir back b st; tmp="$(mktemp)"
+  awk -F'\t' -v r="$last" '$1==r{print $2"\t"$3}' "$ORG_LOG" | tail -r > "$tmp"   # reverse order
+  while IFS="$(printf '\t')" read -r src dst; do
+    [ -n "$src" ] && [ -n "$dst" ] || continue
+    [ -e "$dst" ] || continue
+    sdir="$(dirname "$src")"; mkdir -p "$sdir" 2>/dev/null; back="$src"
+    if [ -e "$back" ]; then b="${src##*/}"; st="$(date +%Y%m%d-%H%M%S)"; case "$b" in *.*) back="$sdir/${b%.*}.$st.${b##*.}";; *) back="$sdir/$b.$st";; esac; fi
+    mv "$dst" "$back" 2>/dev/null && restored=$(( restored + 1 ))
+  done < "$tmp"
+  rm -f "$tmp"
+  awk -F'\t' -v r="$last" '$1!=r' "$ORG_LOG" > "$ORG_LOG.tmp" 2>/dev/null && mv "$ORG_LOG.tmp" "$ORG_LOG"
+  ok "undo complete — restored $restored file(s)."
+}
+cmd_organize_log() {
+  [ -f "$ORG_LOG" ] || { say "  ${DIM}no moves logged yet${R}"; return 0; }
+  title "organize — recent moves"
+  local rid src dst
+  tail -20 "$ORG_LOG" | while IFS="$(printf '\t')" read -r rid src dst; do
+    [ -n "$src" ] || continue; printf '  %s → %s\n' "${src/#$HOME/~}" "${dst/#$HOME/~}"
+  done
+}
+_org_dashboard() {
+  load_config; load_organize
+  local json=0; [ "${1:-}" = "--json" ] && json=1
+  local en="false"; [ "${ORGANIZE_ENABLED:-0}" = 1 ] && en="true"
+  local bt="false"; [ "${ORGANIZE_BY_TYPE:-1}" = 1 ] && bt="true"
+  if [ "$json" = 1 ]; then
+    printf '{"enabled":%s,"mode":"%s","idle_days":%s,"quick_minutes":%s,"by_type":%s,"schedule":"%s","rules":%s,"watch":[' \
+      "$en" "$ORGANIZE_MODE" "${ORGANIZE_IDLE_DAYS:-7}" "${ORGANIZE_QUICK_MINUTES:-30}" "$bt" "$ORGANIZE_SCHEDULE" "$(_org_rule_count)"
+    local first=1 w; for w in ${ORGANIZE_WATCH[@]+"${ORGANIZE_WATCH[@]}"}; do [ "$first" = 1 ] || printf ','; first=0; printf '"%s"' "$w"; done
+    printf ']}\n'; return 0
+  fi
+  title "limpet organize"
+  if [ "$en" = true ]; then say "status:  ${GRN}on${R}"; else say "status:  ${YEL}off${R}  ${DIM}(turn on: limpet organize enable)${R}"; fi
+  say "mode:    ${B}$ORGANIZE_MODE${R}  ${DIM}(idle ${ORGANIZE_IDLE_DAYS}d · quick ${ORGANIZE_QUICK_MINUTES}m)${R}"
+  say "watch:   ${B}$(for w in ${ORGANIZE_WATCH[@]+"${ORGANIZE_WATCH[@]}"}; do printf '%s ' "$w"; done)${R}"
+  say "dests:   $( [ "$bt" = true ] && printf 'by type' || printf 'per-rule only' )  ${DIM}·${R}  schedule: ${B}$ORGANIZE_SCHEDULE${R}  ${DIM}·${R}  rules: ${B}$(_org_rule_count)${R}"
+  hr
+  say "  ${DIM}preview: ${R}${B}limpet organize preview${R}   ${DIM}setup: ${R}${B}limpet organize setup${R}"
+  return 0
+}
+_org_rule_print() { printf '  %s%-13s%s %s   %s%s%s\n' "$B" "$1" "$R" "$2" "$DIM" "${3:-→ by type}" "$R"; }
+_org_rule_add() {
+  local cat="${1:-}" exts="${2:-}" dest="${3:-}"
+  _org_valid_name "$cat" || die "invalid category (letters/digits/_/-): '${cat}'"
+  [ -n "$exts" ] || die "usage: limpet organize rule add <Category> <ext,ext,...> [destination]"
+  mkdir -p "$CONFIG_DIR"; [ -f "$ORGANIZE_RULES" ] || seed_organize_rules
+  local tmp; tmp="$(mktemp)"
+  if awk -F'|' -v c="$cat" '{s=$1; gsub(/^[ \t]+|[ \t]+$/,"",s); if(s==c) next; print}' "$ORGANIZE_RULES" > "$tmp"; then
+    printf '%-12s | %s | %s\n' "$cat" "$exts" "$dest" >> "$tmp" && mv "$tmp" "$ORGANIZE_RULES" \
+      && ok "rule: ${B}$cat${R} → ${dest:-by type}  [$exts]" && return 0
+  fi
+  rm -f "$tmp"; die "could not update rules"
+}
+_org_rule_rm() {
+  local cat="${1:-}"; [ -n "$cat" ] || die "usage: limpet organize rule rm <Category>"
+  [ -f "$ORGANIZE_RULES" ] || return 0
+  local tmp; tmp="$(mktemp)"
+  if awk -F'|' -v c="$cat" '{s=$1; gsub(/^[ \t]+|[ \t]+$/,"",s); if(s==c) next; print}' "$ORGANIZE_RULES" > "$tmp"; then
+    mv "$tmp" "$ORGANIZE_RULES"; ok "removed rule: ${B}$cat${R}"
+  else rm -f "$tmp"; die "could not update rules"; fi
+}
+organize_rule() {
+  local op="${1:-list}"; shift 2>/dev/null || true
+  case "$op" in
+    list|"") title "organize rules ${DIM}(ordered · first match wins)${R}"; _org_each_rule _org_rule_print;;
+    add)     _org_rule_add "$@";;
+    rm)      _org_rule_rm "$@";;
+    edit)    mkdir -p "$CONFIG_DIR"; [ -f "$ORGANIZE_RULES" ] || seed_organize_rules; "${EDITOR:-nano}" "$ORGANIZE_RULES";;
+    *)       die "usage: limpet organize rule <list|add|rm|edit>";;
+  esac
+}
+organize_watch() {
+  load_organize; local op="${1:-list}"; shift 2>/dev/null || true
+  local d="${1:-}" w new=()
+  case "$op" in
+    add)     [ -n "$d" ] || die "usage: limpet organize watch add <folder>"; ORGANIZE_WATCH+=("$d"); save_organize; ok "watching: ${B}$d${R}";;
+    rm)      [ -n "$d" ] || die "usage: limpet organize watch rm <folder>"; for w in ${ORGANIZE_WATCH[@]+"${ORGANIZE_WATCH[@]}"}; do [ "$w" = "$d" ] || new+=("$w"); done; ORGANIZE_WATCH=(${new[@]+"${new[@]}"}); save_organize; ok "unwatched: ${B}$d${R}";;
+    list|"") for w in ${ORGANIZE_WATCH[@]+"${ORGANIZE_WATCH[@]}"}; do say "  $w"; done;;
+    *)       die "usage: limpet organize watch <add|rm|list> [folder]";;
+  esac
+}
+organize_set_mode() {
+  load_organize; local m="${1:-}"; shift 2>/dev/null || true
+  case "$m" in quick|aged|aged-idle) ORGANIZE_MODE="$m";; *) die "usage: limpet organize mode <quick|aged|aged-idle> [--days N|--minutes N]";; esac
+  while [ $# -gt 0 ]; do case "$1" in
+    --days) case "${2:-}" in *[!0-9]*|'') die "days must be a number";; esac; ORGANIZE_IDLE_DAYS="$2"; shift 2;;
+    --minutes) case "${2:-}" in *[!0-9]*|'') die "minutes must be a number";; esac; ORGANIZE_QUICK_MINUTES="$2"; shift 2;;
+    *) shift;; esac; done
+  save_organize; ok "mode: ${B}$ORGANIZE_MODE${R}  (idle ${ORGANIZE_IDLE_DAYS}d · quick ${ORGANIZE_QUICK_MINUTES}m)"
+}
+organize_set() {
+  load_organize; local k="${1:-}" v="${2:-}"
+  case "$k" in
+    by-type)   case "$v" in on) ORGANIZE_BY_TYPE=1;; off) ORGANIZE_BY_TYPE=0;; *) die "usage: limpet organize set by-type <on|off>";; esac;;
+    dest-root) ORGANIZE_DEST_ROOT="$v";;
+    schedule)  case "$v" in daily|hourly|manual) ORGANIZE_SCHEDULE="$v";; *) die "usage: limpet organize set schedule <daily|hourly|manual>";; esac;;
+    *) die "usage: limpet organize set <by-type on|off | dest-root PATH | schedule daily|hourly|manual>";;
+  esac
+  save_organize; ok "set ${B}$k${R} = ${v:-<empty>}"
+}
+organize_setup() {
+  local pf="" pm="" pdays="" pbt=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --folders) pf="$2"; shift 2;; --mode) pm="$2"; shift 2;; --days) pdays="$2"; shift 2;; --by-type) pbt="$2"; shift 2;;
+    --yes|-y) ASSUME_YES=1; shift;; *) shift;; esac; done
+  load_organize
+  title "limpet organize — setup"
+  say "Auto-sort idle files in the folders you choose. Stays ${B}off${R} until you enable at the end."
+  hr
+  if [ -n "$pf" ]; then IFS=',' read -ra ORGANIZE_WATCH <<< "$pf"
+  elif [ "$ASSUME_YES" != 1 ]; then
+    printf '%s?%s folders to organize %s(comma-separated, Enter = Downloads)%s: ' "$YEL" "$R" "$DIM" "$R"
+    local a; read -r a || true; [ -n "$a" ] && IFS=',' read -ra ORGANIZE_WATCH <<< "$a"
+  fi
+  if [ -n "$pm" ]; then ORGANIZE_MODE="$pm"
+  elif [ "$ASSUME_YES" != 1 ]; then
+    say ""; say "${B}When is a file safe to move?${R}"
+    say "  ${CYN}1${R}) aged-idle  ${DIM}older than N days AND not open (safest)${R}"
+    say "  ${CYN}2${R}) aged       ${DIM}older than N days${R}"
+    say "  ${CYN}3${R}) quick      ${DIM}idle a few minutes (aggressive)${R}"
+    printf '%s?%s pick 1-3 (Enter = 1): ' "$YEL" "$R"; local p; read -r p || true
+    case "$p" in 2) ORGANIZE_MODE=aged;; 3) ORGANIZE_MODE=quick;; *) ORGANIZE_MODE=aged-idle;; esac
+  fi
+  [ -n "$pdays" ] && ORGANIZE_IDLE_DAYS="$pdays"
+  if [ -n "$pbt" ]; then case "$pbt" in off|0) ORGANIZE_BY_TYPE=0;; *) ORGANIZE_BY_TYPE=1;; esac
+  elif [ "$ASSUME_YES" != 1 ]; then confirm "auto-create folders by type (Images/, Documents/, …) inside each folder?" && ORGANIZE_BY_TYPE=1 || ORGANIZE_BY_TYPE=0; fi
+  seed_organize_rules
+  save_organize
+  [ "$DRY_RUN" = 1 ] || install_hook
+  hr
+  ok "configured: ${B}$ORGANIZE_MODE${R} · folders: ${B}$(for w in ${ORGANIZE_WATCH[@]+"${ORGANIZE_WATCH[@]}"}; do printf '%s ' "$w"; done)${R}"
+  say "  • Preview first: ${B}limpet organize preview${R}   (edit rules: ${B}limpet organize rule edit${R})"
+  if [ "$ASSUME_YES" = 1 ]; then ORGANIZE_ENABLED=1; save_organize; ok "enabled (runs ${ORGANIZE_SCHEDULE})."
+  else confirm "enable auto-organize now (runs ${ORGANIZE_SCHEDULE})?" && { ORGANIZE_ENABLED=1; save_organize; ok "enabled."; } || say "  ${DIM}left off — enable later with: limpet organize enable${R}"; fi
+}
+cmd_organize() {
+  local sub="${1:-status}"; shift 2>/dev/null || true
+  case "$sub" in
+    status|"")  _org_dashboard;;
+    --json)     _org_dashboard --json;;
+    setup)      organize_setup "$@";;
+    enable)     load_organize; ORGANIZE_ENABLED=1; save_organize; [ -f "$ORGANIZE_RULES" ] || seed_organize_rules; install_hook; ok "organize ${GRN}enabled${R} (runs ${ORGANIZE_SCHEDULE}). Preview: ${B}limpet organize preview${R}";;
+    disable)    load_organize; ORGANIZE_ENABLED=0; save_organize; ok "organize ${YEL}disabled${R}.";;
+    preview)    with_lock organize run_organize preview;;
+    run)        with_lock organize _org_run_confirmed "$@";;
+    undo)       with_lock organize cmd_organize_undo "$@";;
+    log)        cmd_organize_log;;
+    mode)       organize_set_mode "$@";;
+    watch)      organize_watch "$@";;
+    rule)       organize_rule "$@";;
+    set)        organize_set "$@";;
+    *)          die "usage: limpet organize [status|setup|enable|disable|preview|run|undo|log|mode|watch|rule|set]";;
+  esac
+}
+
 cmd_help() {
   cat <<EOF
 ${B}limpet${R} ${DIM}v$LIMPET_VERSION${R} — external drive as primary storage on macOS, with automatic local failover.
@@ -884,6 +1233,8 @@ ${B}COMMANDS${R}
   ${CYN}list${R}             List managed folders + any ad-hoc links into the drive.
   ${CYN}env${R}              Offload build-cache env-vars (GOCACHE, GRADLE_USER_HOME, …) to the drive.
                    ${DIM}env add VAR path · env rm VAR · env edit · env (show)${R}
+  ${CYN}organize${R}         Opt-in auto file sorter — OFF by default. Sorts idle files by type/rule.
+                   ${DIM}organize setup · preview · run · undo · enable/disable · mode · rule · watch${R}
   ${CYN}update${R}           Update limpet to the latest release (--check just checks).
   ${CYN}uninstall${R}        Remove the guard + hook (optionally restore folders to local).
   ${CYN}help${R} | ${CYN}version${R}   This help / version.
@@ -918,11 +1269,13 @@ main() {
     unlink)       cmd_unlink "$@";;
     list)         cmd_list;;
     env)          cmd_env "$@";;
+    organize)     cmd_organize "$@";;
     update)       cmd_update "$@";;
     uninstall)    cmd_uninstall;;
     __guard)      with_lock guard run_guard;;     # internal: called by launchd + hook
     __mirror)     with_lock mirror run_mirror;;   # internal: called by hook
     __autoupdate) cmd_autoupdate;;                # internal: called by hook (daily)
+    __organize)   with_lock organize run_organize_auto;;  # internal: called by hook (gated on enabled)
     __pick-max-semver) _pick_max_semver;;         # internal: pure stdin→stdout, for tests
     version|-v|--version) say "limpet $LIMPET_VERSION";;
     help|-h|--help) cmd_help;;

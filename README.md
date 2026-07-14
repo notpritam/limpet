@@ -29,7 +29,7 @@ A limpet is the little mollusk that clamps tight to its rock, yet detaches and r
 ~/Documents ─▶ /Volumes/X9/Documents      drive back → offline work merged in, never overwritten
 ```
 
-Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~930 lines, still one file, still zero dependencies — with a live progress UI (see the **[CLI preview](https://limpet.notpritam.in/cli.html)**) and drive-aware **build-cache offload** (`limpet env`).
+Single file. Pure bash. **No kernel extensions, no daemons, no network.** ~1,300 lines, still one file, still zero dependencies — with a live progress UI (see the **[CLI preview](https://limpet.notpritam.in/cli.html)**), drive-aware **build-cache offload** (`limpet env`), and an opt-in **file organizer** (`limpet organize`).
 
 ---
 
@@ -118,6 +118,7 @@ A `mkdir`-based lock means the two never collide.
 | `limpet link <path>` | Move **any** extra file/folder onto the drive and symlink it back. |
 | `limpet unlink <path>` | Bring a symlinked path back onto the local disk. |
 | `limpet env` | Offload build-cache env-vars (Go, Gradle, npm, Android) to the drive. `env add VAR path` · `env rm VAR` · `env edit`. |
+| `limpet organize` | **Opt-in** file sorter (off by default). Sorts idle files by type/rule into destinations you choose. `organize setup · preview · run · undo · enable`. |
 | `limpet doctor` | Health-check and offer fixes (agent loaded? drive renamed?). |
 | `limpet sync` | Run the failover/failback + mirror right now. |
 | `limpet update` | Update limpet to the latest release (`--check` only checks). |
@@ -173,6 +174,26 @@ leaves the variable unset so the tool falls back to its normal internal-disk cac
 working offline instead of erroring on a cache that isn't there. The mapping is applied by a tiny hook in
 your shell rc (added at `setup`), so a new shell always reflects the current drive state.
 
+### Auto-organizing files (opt-in)
+
+`limpet organize` tidies your folders on *your* terms — **off until you enable it**. It moves only files
+that are safe to move, into destinations you define:
+
+```bash
+limpet organize setup      # wizard: folders, mode, timing, destinations
+limpet organize preview    # dry-run — see exactly what would move (nothing changes)
+limpet organize run        # do it   ·   limpet organize undo   reverts the last run
+```
+
+- **You choose when a file is "safe":** `aged-idle` (older than N days **and** not open by any process),
+  `aged`, or `quick` (idle minutes) — and you set the timing.
+- **You choose where each type goes:** auto-create `Images/`, `Documents/`, … in place (`by-type on`), or
+  give any type its own folder — `limpet organize rule add Installers dmg,pkg ~/Applications`. Rules are
+  ordered (first match wins); reorder with `limpet organize rule edit`.
+- **Safe by design:** never touches partial downloads, open files, or hidden files; **never overwrites**
+  (keep-both on clash); every move is logged and **undoable**; skips a folder whose drive is unplugged.
+- When enabled it runs once a day from the terminal hook (or `limpet organize set schedule manual`).
+
 ---
 
 ## Self-update
@@ -190,7 +211,7 @@ Turn on automatic checks during `limpet setup` (or set `AUTO_UPDATE=1` in the co
 
 - **Verified copy before delete.** When moving a folder onto the drive, limpet does a `ditto` copy, then byte-verifies a manifest of every file before removing the original. If verification fails, the original is left untouched.
 - **Never overwrites.** On reconnect, a file that exists in both places is kept as `name.local-<timestamp>` — you never lose either version.
-- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~930 lines of bash you can read in one sitting.
+- **No elevation, no extensions.** No kernel extensions, no background servers, no network calls (except the optional update check). It's ~1,300 lines of bash you can read in one sitting.
 - **Not a backup.** limpet keeps your data *available and resilient to unplugs* — it is **not** a substitute for Time Machine or an offsite backup. Keep one.
 
 ---

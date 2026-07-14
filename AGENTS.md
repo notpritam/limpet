@@ -13,12 +13,20 @@ limpet (single script)
 ├── config         ~/.config/limpet/config         DRIVE, FOLDERS[], MIRROR_DEST, AUTO_UPDATE, GUARD_INTERVAL
 │                  ~/.config/limpet/mirror-paths.txt  drive-relative paths to mirror offline
 │                  ~/.config/limpet/env.conf          VAR = drive-relative path  (build-cache offload)
-├── state/logs     ~/.local/state/limpet/           logs, throttle stamps, *.lock.d, update flag
+│                  ~/.config/limpet/organize.conf      opt-in file-organizer settings (OFF by default)
+│                  ~/.config/limpet/organize-rules.conf  ordered `Category | ext,ext | dest` rules
+├── state/logs     ~/.local/state/limpet/           logs, throttle stamps, *.lock.d, update flag, organize.log
 ├── guard          launchd com.limpet.guard         RunAtLoad + WatchPaths /Volumes (+ optional StartInterval) → `limpet __guard`
 └── terminal hooks two blocks in ~/.zshrc / ~/.bashrc
-                   • self-heal (backgrounded): throttled `__guard` + `__mirror` + `__autoupdate`
+                   • self-heal (backgrounded): throttled `__guard` + `__mirror` + `__autoupdate` + `__organize`
                    • env       (foreground):   `eval "$(limpet env --shell)"` — sets cache vars in the shell
 ```
+
+`limpet organize` (v0.4) is an **opt-in** file sorter (off by default): it moves top-level files in
+watched folders into destinations by ordered ext→dest rules, only when a file is safe under the chosen
+mode (`quick`/`aged`/`aged-idle`). It runs from the self-heal hook (`__organize`, gated on
+`ORGANIZE_ENABLED` + a schedule stamp), so a disabled config is a cheap no-op. Keep-both on clash; every
+move is logged to `organize.log` and reversible via `limpet organize undo`.
 
 `limpet env` points chosen env-vars (GOCACHE, GRADLE_USER_HOME, …) at the drive when present and **unsets**
 them when absent, so build tools fall back to their internal-disk cache offline instead of erroring. The
@@ -37,6 +45,7 @@ Two execution contexts, by design:
 - **The guard must not require Full Disk Access.** Keep `__guard` limited to `stat`/`readlink`/local `ln`/`mkdir`/`rmdir`. Anything needing to read/write the external volume's contents belongs in the terminal-hook path, guarded by `drive_present`.
 - **`drive_present` is mount-aware.** For a real `/Volumes/*` drive it requires a live `mount` table entry, not just `[ -d ]` — a hollow mountpoint left by an unclean eject must read as *absent* so failover fires (otherwise apps/dev-servers see an empty tree and can't load files). Non-`/Volumes` paths (the test harness) fall back to `[ -d ]`. Do not revert to a bare directory check.
 - **`env --shell` is side-effect-free and shell-clean.** It runs foreground in every new shell. No logging, locks, network, or `mkdir`: read config + `env.conf`, then print only `export VAR="$DRIVE/path"` (drive present) or `unset VAR` (absent). Nothing else may reach stdout, or it corrupts the `eval`.
+- **`organize` never moves a live file and never overwrites.** Top-level files only (no recurse); skip partial-downloads (`.crdownload/.part/…`), hidden/dotfiles, symlinks, and (in `aged-idle`) files open per `lsof`; keep-both on name clash; log every move to `organize.log` for `undo`. It is OFF by default (`ORGANIZE_ENABLED=0`) and only acts via the terminal hook (`__organize`, gated + throttled) or an explicit `run`/`preview`. Rule Category/extension names are validated (`_org_valid_name`).
 - **Single-instance lock.** `with_lock <name>` (mkdir-based, steals if stale >2min) wraps guard and mirror so launchd + terminal runs never collide. Keep new periodic work under a lock.
 - **No module-level surprises / idempotency.** Every command must be safe to run repeatedly. `setup` detects an existing install and adopts already-symlinked folders rather than re-copying.
 - **Bash 3.2 compatible.** macOS ships bash 3.2. No associative arrays, no `mapfile`, no `${var^^}`. Expand possibly-empty arrays as `${arr[@]+"${arr[@]}"}` under `set -u`. CI/local check: `/bin/bash -n limpet`.
@@ -64,8 +73,9 @@ limpet doctor                         # health report (also auto-offers agent re
 Use a **real filesystem**, not mocks. The canonical test sandboxes `HOME` + a fake drive dir and exercises the full cycle:
 
 ```bash
-bash test/test-guard.sh     # symlink → unplug → offline edit → replug → merge-back/keep-both; 11 assertions
-bash test/test-env.sh       # env --shell present/absent, eval, add/rm/upsert, validation; 16 assertions
+bash test/test-guard.sh     # symlink → unplug → offline edit → replug → merge-back/keep-both; 12 assertions
+bash test/test-env.sh       # env --shell present/absent, eval, add/rm/upsert, validation, injection; 22 assertions
+bash test/test-organize.sh  # sort-by-type + explicit dest, skips (fresh/partial/DS_Store/unmatched), keep-both, undo; 17 assertions
 bash test/test-update.sh    # _pick_max_semver numeric ordering (git-ls-remote fallback); 3 assertions
 bash test/test-ui.sh        # animation layer resolves child exit + stays silent off-TTY
 bash test/test-lint.sh      # forbids pipefail-unsafe `cmd | grep -q`; bash -n gate
